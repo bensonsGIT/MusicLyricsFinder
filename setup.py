@@ -9,10 +9,12 @@ setup(
     install_requires=[
         "mutagen>=1.47.0",
         "requests>=2.28.0",
+        "flask>=3.0.0",
     ],
     entry_points={
         "console_scripts": [
             "lyrics-finder=lyrics_finder.cli:main",
+            "lyrics-finder-ui=webui:main",
         ],
     },
 )
