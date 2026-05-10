@@ -15,6 +15,7 @@ setup(
         "console_scripts": [
             "lyrics-finder=lyrics_finder.cli:main",
             "lyrics-finder-ui=webui:main",
+            "ipod-manager=ipod_manager.cli:main",
         ],
     },
 )
