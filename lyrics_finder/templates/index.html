@@ -8,24 +8,24 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:        #0b0b14;
-  --surface:   #13131f;
-  --card:      #18182a;
-  --card-hover:#1e1e35;
-  --border:    #2a2a45;
-  --border2:   #3a3a5c;
-  --accent:    #7c3aed;
-  --accent-lt: #a78bfa;
+  --bg:          #0b0b14;
+  --surface:     #13131f;
+  --card:        #18182a;
+  --card-hover:  #1e1e35;
+  --border:      #2a2a45;
+  --border2:     #3a3a5c;
+  --accent:      #7c3aed;
+  --accent-lt:   #a78bfa;
   --accent-glow: rgba(124,58,237,.35);
-  --success:   #10b981;
-  --warn:      #f59e0b;
-  --error:     #ef4444;
-  --info:      #3b82f6;
-  --text:      #ede9fe;
-  --text-dim:  #9d9db8;
-  --text-muted:#5a5a7a;
-  --radius:    10px;
-  --shadow:    0 4px 24px rgba(0,0,0,.5);
+  --success:     #10b981;
+  --warn:        #f59e0b;
+  --error:       #ef4444;
+  --info:        #3b82f6;
+  --text:        #ede9fe;
+  --text-dim:    #9d9db8;
+  --text-muted:  #5a5a7a;
+  --radius:      10px;
+  --shadow:      0 4px 24px rgba(0,0,0,.5);
 }
 
 html { font-size: 15px; }
@@ -42,17 +42,11 @@ header {
   background: linear-gradient(135deg, #1a0a3d 0%, #0d1b4a 50%, #0b0b14 100%);
   border-bottom: 1px solid var(--border);
   padding: 28px 40px 24px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  backdrop-filter: blur(12px);
+  position: sticky; top: 0; z-index: 100;
 }
 .header-inner {
-  max-width: 1100px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  max-width: 1100px; margin: 0 auto;
+  display: flex; align-items: center; gap: 16px;
 }
 .logo {
   width: 44px; height: 44px;
@@ -64,19 +58,25 @@ header {
   flex-shrink: 0;
 }
 .header-text h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: -.3px; }
-.header-text p  { font-size: .8rem; color: var(--text-dim); margin-top: 1px; }
-
-/* ── Main wrapper ── */
-main {
-  max-width: 1100px;
-  margin: 32px auto;
-  padding: 0 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.header-text p  { font-size: .8rem; color: var(--text-dim); margin-top: 2px; }
+.free-badge {
+  margin-left: auto;
+  background: rgba(16,185,129,.12);
+  border: 1px solid rgba(16,185,129,.3);
+  color: var(--success);
+  font-size: .72rem; font-weight: 700;
+  padding: 4px 10px; border-radius: 20px;
+  letter-spacing: .04em;
 }
 
-/* ── Panel / Card ── */
+/* ── Main ── */
+main {
+  max-width: 1100px; margin: 28px auto;
+  padding: 0 24px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+
+/* ── Panel ── */
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -84,21 +84,16 @@ main {
   overflow: hidden;
 }
 .panel-header {
-  padding: 14px 20px;
+  padding: 13px 20px;
   border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: .8rem;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  display: flex; align-items: center; gap: 10px;
+  font-size: .78rem; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
   color: var(--text-dim);
 }
-.panel-header .icon { font-size: 14px; }
-.panel-body { padding: 20px; }
+.panel-body { padding: 18px 20px; }
 
-/* ── Form controls ── */
+/* ── Controls ── */
 label { display: block; font-size: .8rem; color: var(--text-dim); margin-bottom: 6px; font-weight: 500; }
 input[type=text], input[type=password] {
   width: 100%;
@@ -111,19 +106,16 @@ input[type=text], input[type=password] {
   outline: none;
   transition: border-color .2s, box-shadow .2s;
 }
-input[type=text]:focus, input[type=password]:focus {
+input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
-input[type=text]::placeholder, input[type=password]::placeholder { color: var(--text-muted); }
+input::placeholder { color: var(--text-muted); }
 
-/* ── Buttons ── */
 button {
-  cursor: pointer;
-  border: none;
+  cursor: pointer; border: none;
   border-radius: 8px;
-  font-size: .85rem;
-  font-weight: 600;
+  font-size: .85rem; font-weight: 600;
   padding: 10px 18px;
   transition: all .18s;
   white-space: nowrap;
@@ -133,130 +125,84 @@ button {
   color: #fff;
   box-shadow: 0 2px 12px var(--accent-glow);
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px var(--accent-glow); }
+.btn-primary:hover  { transform: translateY(-1px); box-shadow: 0 4px 20px var(--accent-glow); }
 .btn-primary:active { transform: translateY(0); }
 .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none; }
-
 .btn-ghost {
-  background: transparent;
-  color: var(--text-dim);
+  background: transparent; color: var(--text-dim);
   border: 1px solid var(--border);
 }
 .btn-ghost:hover { border-color: var(--border2); color: var(--text); background: var(--card); }
-
 .btn-sm { padding: 6px 12px; font-size: .78rem; border-radius: 6px; }
-.btn-success {
-  background: rgba(16,185,129,.15);
-  color: var(--success);
-  border: 1px solid rgba(16,185,129,.3);
-}
-.btn-success:hover { background: rgba(16,185,129,.25); }
 
-/* ── Toggle switch ── */
+/* ── Toggle ── */
 .toggle-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: .85rem;
-  color: var(--text-dim);
-  cursor: pointer;
-  user-select: none;
+  display: flex; align-items: center; gap: 10px;
+  font-size: .85rem; color: var(--text-dim);
+  cursor: pointer; user-select: none;
 }
 .toggle-row input { display: none; }
 .toggle-track {
   width: 36px; height: 20px;
-  background: var(--border2);
-  border-radius: 10px;
-  position: relative;
-  transition: background .2s;
-  flex-shrink: 0;
+  background: var(--border2); border-radius: 10px;
+  position: relative; transition: background .2s; flex-shrink: 0;
 }
 .toggle-track::after {
-  content: '';
-  position: absolute;
+  content: ''; position: absolute;
   top: 3px; left: 3px;
   width: 14px; height: 14px;
-  border-radius: 50%;
-  background: #fff;
+  border-radius: 50%; background: #fff;
   transition: transform .2s;
 }
 input:checked + .toggle-track { background: var(--accent); }
 input:checked + .toggle-track::after { transform: translateX(16px); }
 
-/* ── Config grid ── */
-.config-grid {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 16px;
-  align-items: end;
-}
-.key-row { display: flex; gap: 8px; align-items: flex-end; }
-.key-row input { flex: 1; }
-.options-row {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-top: 4px;
-}
-
-/* ── Scan row ── */
+/* ── Scanner row ── */
 .scan-row { display: flex; gap: 10px; align-items: flex-end; }
 .scan-row .path-wrap { flex: 1; }
+.options-row { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* ── Advanced (Musixmatch) ── */
+.adv-toggle {
+  font-size: .78rem; color: var(--text-muted);
+  cursor: pointer; background: none; border: none;
+  padding: 0; margin-top: 12px;
+  display: flex; align-items: center; gap: 5px;
+}
+.adv-toggle:hover { color: var(--text-dim); }
+.adv-body { display: none; margin-top: 12px; }
+.adv-body.open { display: block; }
 
 /* ── Stats bar ── */
 .stats-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
 .stat-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 5px 12px;
-  font-size: .78rem;
-  color: var(--text-dim);
+  display: flex; align-items: center; gap: 6px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 12px;
+  font-size: .78rem; color: var(--text-dim);
 }
-.stat-pill .dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.dot-total   { background: var(--text-muted); }
-.dot-lyrics  { background: var(--success); }
-.dot-done    { background: var(--accent-lt); }
-.dot-err     { background: var(--error); }
-
+.stat-pill .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot-total  { background: var(--text-muted); }
+.dot-lyrics { background: var(--success); }
+.dot-done   { background: var(--accent-lt); }
+.dot-err    { background: var(--error); }
 .stats-bar .spacer { flex: 1; }
 
-/* ── Progress bar ── */
+/* ── Progress ── */
 .progress-wrap { margin-top: 12px; display: none; }
 .progress-wrap.visible { display: block; }
-.progress-track {
-  height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  overflow: hidden;
-}
+.progress-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
 .progress-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--accent-lt));
-  border-radius: 2px;
-  width: 0%;
+  border-radius: 2px; width: 0%;
   transition: width .3s ease;
 }
-.progress-label {
-  font-size: .75rem;
-  color: var(--text-muted);
-  margin-top: 6px;
-  text-align: right;
-}
+.progress-label { font-size: .75rem; color: var(--text-muted); margin-top: 6px; text-align: right; }
 
-/* ── File list ── */
+/* ── File cards ── */
 #file-list { display: flex; flex-direction: column; gap: 8px; }
 
 .file-card {
@@ -266,66 +212,37 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
   overflow: hidden;
   transition: border-color .18s, box-shadow .18s;
 }
-.file-card:hover { border-color: var(--border2); box-shadow: var(--shadow); }
-.file-card.processing { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
-.file-card.success    { border-color: rgba(16,185,129,.4); }
-.file-card.not-found  { border-color: rgba(245,158,11,.3); }
-.file-card.errored    { border-color: rgba(239,68,68,.4); }
+.file-card:hover       { border-color: var(--border2); box-shadow: var(--shadow); }
+.file-card.processing  { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+.file-card.success     { border-color: rgba(16,185,129,.4); }
+.file-card.not-found   { border-color: rgba(245,158,11,.3); }
+.file-card.errored     { border-color: rgba(239,68,68,.4); }
 
 .file-card-top {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+  display: flex; align-items: center; gap: 14px;
   padding: 14px 16px;
 }
 .file-icon {
-  width: 38px; height: 38px;
-  border-radius: 8px;
+  width: 38px; height: 38px; border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 16px;
-  flex-shrink: 0;
-  background: var(--surface);
+  font-size: 16px; flex-shrink: 0;
 }
 .file-icon.mp3  { background: rgba(124,58,237,.15); }
 .file-icon.m4a,
 .file-icon.aac  { background: rgba(59,130,246,.15); }
 
 .file-meta { flex: 1; min-width: 0; }
-.file-name {
-  font-size: .85rem;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.file-tags {
-  font-size: .78rem;
-  color: var(--text-dim);
-  margin-top: 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.file-name { font-size: .85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-tags { font-size: .78rem; color: var(--text-dim); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-tags em { font-style: normal; color: var(--text-muted); }
 
-.file-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
+.file-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
-/* ── Status badges ── */
+/* ── Badges ── */
 .badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: .72rem;
-  font-weight: 600;
-  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px;
+  font-size: .72rem; font-weight: 600; white-space: nowrap;
 }
 .badge-lyrics  { background: rgba(16,185,129,.12); color: var(--success); border: 1px solid rgba(16,185,129,.25); }
 .badge-pending { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
@@ -333,13 +250,11 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
 .badge-ok      { background: rgba(16,185,129,.12); color: var(--success); border: 1px solid rgba(16,185,129,.3); }
 .badge-warn    { background: rgba(245,158,11,.1); color: var(--warn); border: 1px solid rgba(245,158,11,.25); }
 .badge-err     { background: rgba(239,68,68,.1); color: var(--error); border: 1px solid rgba(239,68,68,.25); }
-.badge-dry     { background: rgba(59,130,246,.1); color: var(--info); border: 1px solid rgba(59,130,246,.25); }
 
 /* ── Spinner ── */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
-  display: inline-block;
-  width: 10px; height: 10px;
+  display: inline-block; width: 10px; height: 10px;
   border: 2px solid rgba(167,139,250,.3);
   border-top-color: var(--accent-lt);
   border-radius: 50%;
@@ -349,75 +264,55 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
 /* ── Lyrics panel ── */
 .lyrics-panel {
   border-top: 1px solid var(--border);
-  padding: 0;
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height .35s ease, padding .35s;
+  max-height: 0; overflow: hidden;
+  transition: max-height .35s ease;
 }
-.lyrics-panel.open {
-  max-height: 400px;
-  padding: 0;
+.lyrics-panel.open { max-height: 400px; }
+.lyrics-inner { padding: 16px; }
+.lyrics-source {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: .72rem; color: var(--text-muted);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 3px 10px; margin-bottom: 10px;
 }
-.lyrics-inner {
-  padding: 16px;
-}
-.lyrics-match {
-  font-size: .75rem;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-.lyrics-match strong { color: var(--text-dim); }
 .lyrics-text {
-  font-size: .82rem;
-  line-height: 1.8;
-  color: var(--text-dim);
-  white-space: pre-wrap;
-  max-height: 300px;
-  overflow-y: auto;
-  padding-right: 6px;
+  font-size: .82rem; line-height: 1.8; color: var(--text-dim);
+  white-space: pre-wrap; max-height: 300px; overflow-y: auto; padding-right: 6px;
 }
 .lyrics-text::-webkit-scrollbar { width: 4px; }
 .lyrics-text::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 
-/* ── Empty state ── */
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text-muted);
+/* ── Source chips ── */
+.source-chip {
+  font-size: .68rem; font-weight: 600;
+  padding: 2px 7px; border-radius: 10px;
+  background: rgba(59,130,246,.12);
+  color: var(--info);
+  border: 1px solid rgba(59,130,246,.25);
+  white-space: nowrap;
 }
+
+/* ── Empty state ── */
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
 .empty-state .big-icon { font-size: 48px; margin-bottom: 16px; opacity: .5; }
 .empty-state h3 { font-size: 1rem; color: var(--text-dim); margin-bottom: 6px; }
 .empty-state p  { font-size: .82rem; }
 
 /* ── Toast ── */
 #toast {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
+  position: fixed; bottom: 24px; left: 50%;
   transform: translateX(-50%) translateY(80px);
-  background: var(--surface);
-  border: 1px solid var(--border2);
-  border-radius: 10px;
-  padding: 12px 20px;
-  font-size: .85rem;
-  color: var(--text);
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 12px 20px;
+  font-size: .85rem; color: var(--text);
   box-shadow: var(--shadow);
   transition: transform .3s ease, opacity .3s;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 200;
+  opacity: 0; pointer-events: none; z-index: 200;
   white-space: nowrap;
 }
 #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 
-/* ── Utilities ── */
-.flex { display: flex; }
-.gap-8 { gap: 8px; }
 .hidden { display: none !important; }
-.text-success { color: var(--success); }
-.text-warn { color: var(--warn); }
-.text-error { color: var(--error); }
-.text-info { color: var(--info); }
 </style>
 </head>
 <body>
@@ -427,62 +322,54 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
     <div class="logo">🎵</div>
     <div class="header-text">
       <h1>Lyrics Finder</h1>
-      <p>Search Musixmatch · Embed into MP3 &amp; M4A files</p>
+      <p>Embed lyrics into MP3 &amp; M4A files automatically</p>
     </div>
+    <span class="free-badge">✦ 100% FREE · NO API KEY</span>
   </div>
 </header>
 
 <main>
 
-  <!-- Config -->
-  <div class="panel">
-    <div class="panel-header"><span class="icon">⚙</span> Configuration</div>
-    <div class="panel-body">
-      <div class="config-grid">
-        <div>
-          <label for="api-key">Musixmatch API Key</label>
-          <div class="key-row">
-            <input type="password" id="api-key" placeholder="Enter your API key…" autocomplete="off">
-            <button class="btn-ghost" id="toggle-key" title="Show/hide">👁</button>
-            <button class="btn-primary" id="save-key">Save</button>
-          </div>
-        </div>
-        <div class="options-row">
-          <label class="toggle-row" title="Replace lyrics even if the file already has them">
-            <input type="checkbox" id="opt-overwrite">
-            <span class="toggle-track"></span>
-            Overwrite existing
-          </label>
-          <label class="toggle-row" title="Search without writing lyrics to disk">
-            <input type="checkbox" id="opt-dryrun">
-            <span class="toggle-track"></span>
-            Dry run
-          </label>
-        </div>
-      </div>
-      <div id="key-hint" style="font-size:.76rem;color:var(--text-muted);margin-top:10px;display:none;">
-        🔑 Get a free key at <a href="https://developer.musixmatch.com/" target="_blank" style="color:var(--accent-lt)">developer.musixmatch.com</a>
-      </div>
-    </div>
-  </div>
-
   <!-- Scanner -->
   <div class="panel">
-    <div class="panel-header"><span class="icon">📁</span> Music Directory</div>
+    <div class="panel-header"><span>📁</span> Music Directory</div>
     <div class="panel-body">
       <div class="scan-row">
         <div class="path-wrap">
-          <label for="dir-path">Directory path</label>
-          <input type="text" id="dir-path" placeholder="/home/user/Music">
+          <label for="dir-path">Folder containing your music files</label>
+          <input type="text" id="dir-path" placeholder="/Users/you/Music">
         </div>
         <button class="btn-primary" id="btn-scan">
           <span id="scan-label">Scan</span>
         </button>
       </div>
+
+      <div class="options-row">
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-overwrite">
+          <span class="toggle-track"></span>
+          Overwrite existing lyrics
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-dryrun">
+          <span class="toggle-track"></span>
+          Dry run (no writes)
+        </label>
+      </div>
+
+      <!-- Advanced: optional Musixmatch key -->
+      <button class="adv-toggle" id="adv-toggle">▸ Advanced options</button>
+      <div class="adv-body" id="adv-body">
+        <label for="mm-key">Musixmatch API key <em style="color:var(--text-muted);font-style:normal">(optional — adds extra coverage)</em></label>
+        <div style="display:flex;gap:8px">
+          <input type="password" id="mm-key" placeholder="Leave blank to use free sources only" style="flex:1">
+          <button class="btn-ghost" id="toggle-mm-key">👁</button>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- Stats + batch actions -->
+  <!-- Stats + batch -->
   <div id="stats-section" class="hidden">
     <div class="panel">
       <div class="panel-body">
@@ -515,57 +402,51 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
-  files: [],          // [{path, name, title, artist, album, has_lyrics}]
-  results: {},        // {path: {status, ...}}
+  files: [],
+  results: {},
   processing: false,
   processedCount: 0,
   errorCount: 0,
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const el = (tag, cls, html='') => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (html) e.innerHTML = html;
-  return e;
-};
 
-function ext(name) { return (name.split('.').pop() || '').toLowerCase(); }
-
-function showToast(msg, type='') {
+function showToast(msg, type = '') {
   const t = $('toast');
   t.textContent = msg;
-  t.style.borderColor = type === 'error' ? 'rgba(239,68,68,.5)'
-    : type === 'success' ? 'rgba(16,185,129,.5)'
-    : 'var(--border2)';
+  t.style.borderColor = type === 'error'   ? 'rgba(239,68,68,.5)'
+                      : type === 'success' ? 'rgba(16,185,129,.5)'
+                      : 'var(--border2)';
   t.classList.add('show');
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.remove('show'), 3200);
 }
 
-function apiKey() { return $('api-key').value.trim(); }
 function isOverwrite() { return $('opt-overwrite').checked; }
-function isDryRun() { return $('opt-dryrun').checked; }
+function isDryRun()    { return $('opt-dryrun').checked; }
+function mmKey()       { return $('mm-key').value.trim(); }
 
-// ── Persist API key ────────────────────────────────────────────────────────
-(function initKey() {
-  const saved = localStorage.getItem('mmx_api_key');
-  if (saved) { $('api-key').value = saved; }
-  else { $('key-hint').style.display = 'block'; }
-})();
-
-$('save-key').addEventListener('click', () => {
-  const k = apiKey();
-  if (!k) { showToast('Enter an API key first', 'error'); return; }
-  localStorage.setItem('mmx_api_key', k);
-  $('key-hint').style.display = 'none';
-  showToast('API key saved', 'success');
+// ── Advanced toggle ────────────────────────────────────────────────────────
+$('adv-toggle').addEventListener('click', () => {
+  const body = $('adv-body');
+  const btn  = $('adv-toggle');
+  body.classList.toggle('open');
+  btn.textContent = body.classList.contains('open') ? '▾ Advanced options' : '▸ Advanced options';
+});
+$('toggle-mm-key').addEventListener('click', () => {
+  const inp = $('mm-key');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
 });
 
-$('toggle-key').addEventListener('click', () => {
-  const inp = $('api-key');
-  inp.type = inp.type === 'password' ? 'text' : 'password';
+// ── Persist Musixmatch key ─────────────────────────────────────────────────
+(function() {
+  const saved = localStorage.getItem('mmx_key');
+  if (saved) $('mm-key').value = saved;
+})();
+$('mm-key').addEventListener('change', () => {
+  const v = mmKey();
+  if (v) localStorage.setItem('mmx_key', v);
+  else localStorage.removeItem('mmx_key');
 });
 
 // ── Scan ───────────────────────────────────────────────────────────────────
@@ -580,11 +461,7 @@ async function scan() {
   $('btn-scan').disabled = true;
 
   try {
-    const res = await fetch('/api/scan', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({directory: dir}),
-    });
+    const res  = await fetch('/api/scan', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({directory: dir}) });
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Scan failed', 'error'); return; }
 
@@ -622,7 +499,6 @@ function updateStats() {
 function renderFileList() {
   const list = $('file-list');
   list.innerHTML = '';
-
   if (!state.files.length) {
     list.innerHTML = `<div class="empty-state">
       <div class="big-icon">🎵</div>
@@ -631,102 +507,112 @@ function renderFileList() {
     </div>`;
     return;
   }
-
-  state.files.forEach((file, idx) => {
-    list.appendChild(buildCard(file, idx));
-  });
+  state.files.forEach((file, idx) => list.appendChild(buildCard(file, idx)));
 }
 
 function buildCard(file, idx) {
   const r      = state.results[file.path];
   const status = r ? r.status : (file.has_lyrics ? 'has_lyrics' : 'idle');
 
-  const card = el('div', 'file-card');
+  const card = document.createElement('div');
+  card.className = 'file-card';
   card.id = `card-${idx}`;
-  if (status === 'processing') card.classList.add('processing');
-  if (status === 'success')    card.classList.add('success');
-  if (status === 'not_found')  card.classList.add('not-found');
-  if (r && r.error)            card.classList.add('errored');
+  if (status === 'processing')       card.classList.add('processing');
+  else if (status === 'success')     card.classList.add('success');
+  else if (status === 'not_found')   card.classList.add('not-found');
+  else if (r && r.error)             card.classList.add('errored');
 
-  const fext = ext(file.name);
-  const iconChar = fext === 'mp3' ? '🎵' : '🎶';
-  const titleTag = file.title
+  const fext = (file.name.split('.').pop() || '').toLowerCase();
+  const icon = fext === 'mp3' ? '🎵' : '🎶';
+  const titleLine = file.title
     ? `<span>${esc(file.title)}</span> <em>—</em> <span>${esc(file.artist || 'Unknown artist')}</span>`
-    : `<em>No title metadata</em>`;
+    : `<em>No title tag</em>`;
 
-  const badge = buildBadge(status, r);
-
-  const top = el('div', 'file-card-top');
+  const top = document.createElement('div');
+  top.className = 'file-card-top';
   top.innerHTML = `
-    <div class="file-icon ${fext}">${iconChar}</div>
+    <div class="file-icon ${fext}">${icon}</div>
     <div class="file-meta">
       <div class="file-name">${esc(file.name)}</div>
-      <div class="file-tags">${titleTag}${file.album ? ` <em>·</em> ${esc(file.album)}` : ''}</div>
+      <div class="file-tags">${titleLine}${file.album ? ` <em>·</em> ${esc(file.album)}` : ''}</div>
     </div>
     <div class="file-actions" id="actions-${idx}"></div>
   `;
   card.appendChild(top);
 
   const actions = top.querySelector(`#actions-${idx}`);
-  actions.appendChild(badge);
 
-  if (r && r.lyrics) {
-    const previewBtn = el('button', 'btn-ghost btn-sm');
-    previewBtn.textContent = '📜 Lyrics';
-    previewBtn.addEventListener('click', () => toggleLyrics(card, r));
-    actions.appendChild(previewBtn);
+  // Source chip
+  if (r && r.source) {
+    const chip = document.createElement('span');
+    chip.className = 'source-chip';
+    chip.textContent = r.source;
+    actions.appendChild(chip);
   }
 
+  // Status badge
+  actions.appendChild(buildBadge(status, r));
+
+  // Lyrics preview button
+  if (r && r.lyrics) {
+    const btn = document.createElement('button');
+    btn.className = 'btn-ghost btn-sm';
+    btn.textContent = '📜 Lyrics';
+    btn.addEventListener('click', () => toggleLyrics(card, r));
+    actions.appendChild(btn);
+  }
+
+  // Process / retry button
   if (status !== 'processing') {
-    const processBtn = el('button', 'btn-ghost btn-sm');
-    processBtn.textContent = status === 'idle' || status === 'has_lyrics' ? '▶ Find' : '↺ Retry';
-    processBtn.id = `proc-${idx}`;
-    processBtn.addEventListener('click', () => processSingle(file, idx));
-    actions.appendChild(processBtn);
+    const btn = document.createElement('button');
+    btn.className = 'btn-ghost btn-sm';
+    btn.textContent = (status === 'idle' || status === 'has_lyrics') ? '▶ Find' : '↺ Retry';
+    btn.addEventListener('click', () => processSingle(file, idx));
+    actions.appendChild(btn);
   }
 
-  if (r && r.lyrics) {
-    const lyricsPanel = buildLyricsPanel(r);
-    card.appendChild(lyricsPanel);
-  }
+  // Lyrics panel
+  if (r && r.lyrics) card.appendChild(buildLyricsPanel(r));
 
   return card;
 }
 
 function buildBadge(status, r) {
-  const badge = el('span', 'badge');
+  const b = document.createElement('span');
+  b.className = 'badge';
   if (r && r.error) {
-    badge.className = 'badge badge-err';
-    badge.innerHTML = `✗ Error`;
-    badge.title = r.error;
+    b.className = 'badge badge-err';
+    b.title = r.error;
+    b.textContent = '✗ Error';
   } else if (status === 'processing') {
-    badge.className = 'badge badge-spin';
-    badge.innerHTML = `<span class="spinner"></span> Searching…`;
+    b.className = 'badge badge-spin';
+    b.innerHTML = '<span class="spinner"></span> Searching…';
   } else if (status === 'success') {
-    badge.className = 'badge badge-ok';
-    badge.innerHTML = r.dry_run ? '☁ Preview' : '✓ Written';
+    b.className = 'badge badge-ok';
+    b.textContent = r.dry_run ? '☁ Preview' : '✓ Written';
   } else if (status === 'has_lyrics') {
-    badge.className = 'badge badge-lyrics';
-    badge.innerHTML = '♪ Has lyrics';
+    b.className = 'badge badge-lyrics';
+    b.textContent = '♪ Has lyrics';
   } else if (status === 'not_found') {
-    badge.className = 'badge badge-warn';
-    badge.innerHTML = '○ Not found';
+    b.className = 'badge badge-warn';
+    b.textContent = '○ Not found';
   } else if (status === 'skipped') {
-    badge.className = 'badge badge-warn';
-    const reason = r.reason === 'no_title' ? '— no title' : '— has lyrics';
-    badge.innerHTML = `⊘ Skipped ${reason}`;
+    b.className = 'badge badge-warn';
+    b.textContent = r.reason === 'no_title' ? '⊘ No title tag' : '⊘ Has lyrics';
   } else {
-    badge.className = 'badge badge-pending';
-    badge.innerHTML = '○ Pending';
+    b.className = 'badge badge-pending';
+    b.textContent = '○ Pending';
   }
-  return badge;
+  return b;
 }
 
 function buildLyricsPanel(r) {
-  const panel = el('div', 'lyrics-panel');
-  const inner = el('div', 'lyrics-inner');
+  const panel = document.createElement('div');
+  panel.className = 'lyrics-panel';
+  const inner = document.createElement('div');
+  inner.className = 'lyrics-inner';
   inner.innerHTML = `
-    <div class="lyrics-match">Matched <strong>${esc(r.matched_title)}</strong> by <strong>${esc(r.matched_artist)}</strong></div>
+    <div class="lyrics-source">🔍 via ${esc(r.source || 'unknown')}</div>
     <div class="lyrics-text">${esc(r.lyrics)}</div>
   `;
   panel.appendChild(inner);
@@ -735,18 +621,12 @@ function buildLyricsPanel(r) {
 
 function toggleLyrics(card, r) {
   let panel = card.querySelector('.lyrics-panel');
-  if (!panel) {
-    panel = buildLyricsPanel(r);
-    card.appendChild(panel);
-  }
+  if (!panel) { panel = buildLyricsPanel(r); card.appendChild(panel); }
   panel.classList.toggle('open');
 }
 
-// ── Process single file ────────────────────────────────────────────────────
+// ── Process single ─────────────────────────────────────────────────────────
 async function processSingle(file, idx) {
-  const key = apiKey();
-  if (!key) { showToast('Enter and save your API key first', 'error'); return; }
-
   setCardProcessing(idx, file);
 
   try {
@@ -755,9 +635,9 @@ async function processSingle(file, idx) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         path: file.path,
-        api_key: key,
         overwrite: isOverwrite(),
         dry_run: isDryRun(),
+        musixmatch_key: mmKey(),
       }),
     });
     const data = await res.json();
@@ -786,17 +666,16 @@ function setCardProcessing(idx, file) {
   const actions = card.querySelector(`#actions-${idx}`);
   if (actions) {
     actions.innerHTML = '';
-    const b = el('span', 'badge badge-spin');
-    b.innerHTML = `<span class="spinner"></span> Searching…`;
+    const b = document.createElement('span');
+    b.className = 'badge badge-spin';
+    b.innerHTML = '<span class="spinner"></span> Searching…';
     actions.appendChild(b);
   }
 }
 
 function refreshCard(file, idx) {
   const old = $(`card-${idx}`);
-  if (!old) return;
-  const newCard = buildCard(file, idx);
-  old.replaceWith(newCard);
+  if (old) old.replaceWith(buildCard(file, idx));
 }
 
 // ── Process all ────────────────────────────────────────────────────────────
@@ -804,8 +683,6 @@ $('btn-all').addEventListener('click', processAll);
 
 async function processAll() {
   if (state.processing) return;
-  const key = apiKey();
-  if (!key) { showToast('Enter and save your API key first', 'error'); return; }
 
   const toProcess = state.files.filter(f => {
     const r = state.results[f.path];
@@ -831,34 +708,30 @@ async function processAll() {
     const idx  = state.files.indexOf(file);
     pf.style.width = `${(i / toProcess.length) * 100}%`;
     pl.textContent = `${i + 1} / ${toProcess.length} — ${file.name}`;
-
     await processSingle(file, idx);
-    await new Promise(r => setTimeout(r, 120)); // brief pacing
+    await new Promise(r => setTimeout(r, 100));
   }
 
   pf.style.width = '100%';
   pl.textContent = `Done — ${state.processedCount} processed, ${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
-  showToast(`Finished processing ${toProcess.length} file${toProcess.length !== 1 ? 's' : ''}`, 'success');
-
+  showToast(`Finished ${toProcess.length} file${toProcess.length !== 1 ? 's' : ''}`, 'success');
   state.processing = false;
   $('btn-all').disabled = false;
 }
 
 // ── Clear ──────────────────────────────────────────────────────────────────
 $('btn-clear').addEventListener('click', () => {
-  state.files = [];
-  state.results = {};
-  state.processedCount = 0;
-  state.errorCount = 0;
+  state.files = []; state.results = {};
+  state.processedCount = 0; state.errorCount = 0;
   $('stats-section').classList.add('hidden');
   $('file-list-section').classList.add('hidden');
   $('file-list').innerHTML = '';
   $('progress-wrap').classList.remove('visible');
 });
 
-// ── Utility ────────────────────────────────────────────────────────────────
-function esc(str) {
-  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// ── Escape HTML ────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 </body>

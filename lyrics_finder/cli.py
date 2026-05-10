@@ -1,10 +1,9 @@
 import argparse
-import os
 import sys
 from pathlib import Path
 
 from .metadata import read_metadata, write_lyrics
-from .musixmatch import MusixmatchClient, MusixmatchError
+from .sources import LyricsFinder
 
 SUPPORTED_EXTENSIONS = {".mp3", ".m4a", ".aac"}
 
@@ -27,7 +26,7 @@ def _collect_files(paths: list[str]) -> list[Path]:
 
 
 def _process_file(
-    client: MusixmatchClient,
+    finder: LyricsFinder,
     path: Path,
     title_override: str = "",
     artist_override: str = "",
@@ -64,35 +63,16 @@ def _process_file(
             print("[skip] Keeping existing lyrics.")
             return False
 
-    print(f"[info] Searching Musixmatch for: {title!r} / {artist!r}")
-    try:
-        results = client.search_track(title, artist)
-    except MusixmatchError as e:
-        print(f"[error] {e}")
-        return False
-
-    if not results:
-        print("[info] No results found.")
-        return False
-
-    track = results[0]["track"]
-    track_id = track["track_id"]
-    matched_title = track["track_name"]
-    matched_artist = track["artist_name"]
-    print(f"[info] Matched: {matched_title!r} by {matched_artist!r} (id={track_id})")
-
-    try:
-        lyrics = client.get_lyrics(track_id)
-    except MusixmatchError as e:
-        print(f"[error] {e}")
-        return False
+    print(f"[info] Searching for: {title!r} / {artist!r}")
+    lyrics, source = finder.find(title, artist, meta.get("album", ""))
 
     if not lyrics:
-        print("[info] Lyrics not available for this track.")
+        print("[info] Lyrics not found in any source.")
         return False
 
+    print(f"[info] Found via {source}")
     preview = lyrics[:200].replace("\n", " ")
-    print(f"[info] Lyrics preview: {preview}...")
+    print(f"[info] Preview: {preview}...")
 
     if dry_run:
         print("[dry-run] Skipping write.")
@@ -111,7 +91,10 @@ def _process_file(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lyrics-finder",
-        description="Search Musixmatch for lyrics and embed them into MP3/M4A files.",
+        description=(
+            "Search for lyrics and embed them into MP3/M4A files. "
+            "Uses lrclib.net and lyrics.ovh — no API key required."
+        ),
     )
     parser.add_argument(
         "paths",
@@ -120,16 +103,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Audio files or directories to process",
     )
     parser.add_argument(
-        "--api-key",
-        default=os.environ.get("MUSIXMATCH_API_KEY", ""),
-        metavar="KEY",
-        help="Musixmatch API key (or set MUSIXMATCH_API_KEY env var)",
-    )
-    parser.add_argument(
         "--title",
         default="",
         metavar="TITLE",
-        help="Override track title for search (only useful with a single file)",
+        help="Override track title for search (single file)",
     )
     parser.add_argument(
         "--artist",
@@ -152,6 +129,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Prompt before overwriting existing lyrics",
     )
+    parser.add_argument(
+        "--musixmatch-key",
+        default="",
+        metavar="KEY",
+        help="Optional Musixmatch API key for additional coverage",
+    )
     return parser
 
 
@@ -159,21 +142,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if not args.api_key:
-        parser.error(
-            "Musixmatch API key required. Pass --api-key or set the "
-            "MUSIXMATCH_API_KEY environment variable.\n"
-            "Get a free key at https://developer.musixmatch.com/"
-        )
-
     files = _collect_files(args.paths)
     if not files:
         print("No supported audio files found.", file=sys.stderr)
         return 1
 
     print(f"Found {len(files)} file(s) to process.")
-
-    client = MusixmatchClient(args.api_key)
+    finder = LyricsFinder(musixmatch_key=args.musixmatch_key)
     ok = 0
     skipped = 0
 
@@ -193,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         success = _process_file(
-            client=client,
+            finder=finder,
             path=path,
             title_override=args.title,
             artist_override=args.artist,

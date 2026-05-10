@@ -3,7 +3,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 
 from .metadata import read_metadata, write_lyrics
-from .musixmatch import MusixmatchClient, MusixmatchError
+from .sources import LyricsFinder
 
 SUPPORTED_EXTENSIONS = {".mp3", ".m4a", ".aac"}
 
@@ -54,14 +54,11 @@ def scan():
 def process():
     data = request.get_json(force=True) or {}
     file_path = data.get("path", "").strip()
-    api_key = data.get("api_key", "").strip()
     overwrite = bool(data.get("overwrite", False))
     dry_run = bool(data.get("dry_run", False))
     title_override = data.get("title", "").strip()
     artist_override = data.get("artist", "").strip()
-
-    if not api_key:
-        return jsonify({"error": "API key required"}), 400
+    musixmatch_key = data.get("musixmatch_key", "").strip()
 
     path = Path(file_path)
     if not path.is_file():
@@ -81,28 +78,11 @@ def process():
     if not title:
         return jsonify({"status": "skipped", "reason": "no_title", "has_lyrics": False})
 
-    client = MusixmatchClient(api_key)
-
-    try:
-        results = client.search_track(title, artist)
-    except MusixmatchError as e:
-        return jsonify({"error": str(e)}), 502
-
-    if not results:
-        return jsonify({"status": "not_found", "reason": "no_results"})
-
-    track = results[0]["track"]
-    track_id = track["track_id"]
-    matched_title = track["track_name"]
-    matched_artist = track["artist_name"]
-
-    try:
-        lyrics = client.get_lyrics(track_id)
-    except MusixmatchError as e:
-        return jsonify({"error": str(e)}), 502
+    finder = LyricsFinder(musixmatch_key=musixmatch_key)
+    lyrics, source = finder.find(title, artist, meta.get("album", ""))
 
     if not lyrics:
-        return jsonify({"status": "not_found", "reason": "no_lyrics"})
+        return jsonify({"status": "not_found", "reason": "no_results"})
 
     if not dry_run:
         try:
@@ -113,8 +93,9 @@ def process():
     return jsonify(
         {
             "status": "success",
-            "matched_title": matched_title,
-            "matched_artist": matched_artist,
+            "matched_title": title,
+            "matched_artist": artist,
+            "source": source,
             "lyrics": lyrics,
             "dry_run": dry_run,
         }

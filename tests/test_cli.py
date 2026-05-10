@@ -10,7 +10,7 @@ from lyrics_finder.cli import main, _collect_files
 
 
 # ---------------------------------------------------------------------------
-# Minimal file helpers (duplicated from test_metadata for independence)
+# Minimal file helpers
 # ---------------------------------------------------------------------------
 
 def _make_mp3(path: Path, title="Song", artist="Artist"):
@@ -46,17 +46,10 @@ def _make_m4a(path: Path, title="Song", artist="Artist"):
     audio.save()
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _mock_client(lyrics="Test lyrics\nLine 2"):
-    client = MagicMock()
-    client.search_track.return_value = [
-        {"track": {"track_id": 1, "track_name": "Song", "artist_name": "Artist"}}
-    ]
-    client.get_lyrics.return_value = lyrics
-    return client
+def _mock_finder(lyrics="Test lyrics\nLine 2"):
+    finder = MagicMock()
+    finder.find.return_value = (lyrics, "lrclib.net")
+    return finder
 
 
 # ---------------------------------------------------------------------------
@@ -77,62 +70,53 @@ def test_collect_files_from_dir(tmp_path):
 def test_collect_files_single_file(tmp_path):
     p = tmp_path / "song.mp3"
     p.write_bytes(b"")
-    files = _collect_files([str(p)])
-    assert files == [p]
+    assert _collect_files([str(p)]) == [p]
 
 
-def test_no_api_key_exits(capsys):
-    with pytest.raises(SystemExit):
-        main(["some_file.mp3"])
-
-
-def test_no_files_found(tmp_path, capsys):
-    empty_dir = tmp_path / "empty"
-    empty_dir.mkdir()
-    rc = main(["--api-key", "key", str(empty_dir)])
+def test_no_files_found(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    rc = main([str(empty)])
     assert rc == 1
 
 
 def test_mp3_lyrics_written(tmp_path):
     p = tmp_path / "song.mp3"
     _make_mp3(p)
-    client = _mock_client()
+    finder = _mock_finder()
 
-    with patch("lyrics_finder.cli.MusixmatchClient", return_value=client):
-        rc = main(["--api-key", "key", str(p)])
+    with patch("lyrics_finder.cli.LyricsFinder", return_value=finder):
+        rc = main([str(p)])
 
     assert rc == 0
     from lyrics_finder.metadata import read_metadata
-    meta = read_metadata(p)
-    assert "Test lyrics" in meta["lyrics"]
+    assert "Test lyrics" in read_metadata(p)["lyrics"]
 
 
 def test_m4a_lyrics_written(tmp_path):
     p = tmp_path / "song.m4a"
     _make_m4a(p)
-    client = _mock_client()
+    finder = _mock_finder()
 
-    with patch("lyrics_finder.cli.MusixmatchClient", return_value=client):
-        rc = main(["--api-key", "key", str(p)])
+    with patch("lyrics_finder.cli.LyricsFinder", return_value=finder):
+        rc = main([str(p)])
 
     assert rc == 0
     from lyrics_finder.metadata import read_metadata
-    meta = read_metadata(p)
-    assert "Test lyrics" in meta["lyrics"]
+    assert "Test lyrics" in read_metadata(p)["lyrics"]
 
 
 def test_dry_run_does_not_write(tmp_path):
     p = tmp_path / "song.mp3"
     _make_mp3(p)
-    client = _mock_client()
+    finder = _mock_finder()
 
-    with patch("lyrics_finder.cli.MusixmatchClient", return_value=client):
-        rc = main(["--api-key", "key", "--dry-run", str(p)])
+    with patch("lyrics_finder.cli.LyricsFinder", return_value=finder):
+        rc = main(["--dry-run", str(p)])
 
     assert rc == 0
     from lyrics_finder.metadata import read_metadata
-    meta = read_metadata(p)
-    assert meta["lyrics"] == ""
+    assert read_metadata(p)["lyrics"] == ""
 
 
 def test_skip_file_with_existing_lyrics(tmp_path):
@@ -140,13 +124,13 @@ def test_skip_file_with_existing_lyrics(tmp_path):
     _make_mp3(p)
     from lyrics_finder.metadata import write_lyrics
     write_lyrics(p, "Existing lyrics")
-    client = _mock_client()
+    finder = _mock_finder()
 
-    with patch("lyrics_finder.cli.MusixmatchClient", return_value=client):
-        rc = main(["--api-key", "key", str(p)])
+    with patch("lyrics_finder.cli.LyricsFinder", return_value=finder):
+        rc = main([str(p)])
 
     assert rc == 0
-    client.search_track.assert_not_called()
+    finder.find.assert_not_called()
 
 
 def test_overwrite_existing_lyrics(tmp_path):
@@ -154,37 +138,35 @@ def test_overwrite_existing_lyrics(tmp_path):
     _make_mp3(p)
     from lyrics_finder.metadata import write_lyrics
     write_lyrics(p, "Old lyrics")
-    client = _mock_client("New lyrics")
+    finder = _mock_finder("New lyrics")
 
-    with patch("lyrics_finder.cli.MusixmatchClient", return_value=client):
-        rc = main(["--api-key", "key", "--overwrite", str(p)])
+    with patch("lyrics_finder.cli.LyricsFinder", return_value=finder):
+        rc = main(["--overwrite", str(p)])
 
     assert rc == 0
     from lyrics_finder.metadata import read_metadata
-    meta = read_metadata(p)
-    assert "New lyrics" in meta["lyrics"]
+    assert "New lyrics" in read_metadata(p)["lyrics"]
 
 
 def test_no_search_results(tmp_path):
     p = tmp_path / "song.mp3"
     _make_mp3(p)
-    client = _mock_client()
-    client.search_track.return_value = []
+    finder = _mock_finder()
+    finder.find.return_value = (None, None)
 
-    with patch("lyrics_finder.cli.MusixmatchClient", return_value=client):
-        rc = main(["--api-key", "key", str(p)])
+    with patch("lyrics_finder.cli.LyricsFinder", return_value=finder):
+        rc = main([str(p)])
 
-    assert rc == 0  # graceful, not a hard error
+    assert rc == 0
 
 
 def test_title_override(tmp_path):
     p = tmp_path / "song.mp3"
     _make_mp3(p, title="", artist="")
-    client = _mock_client()
+    finder = _mock_finder()
 
-    with patch("lyrics_finder.cli.MusixmatchClient", return_value=client):
-        rc = main(["--api-key", "key", "--title", "Custom Title", str(p)])
+    with patch("lyrics_finder.cli.LyricsFinder", return_value=finder):
+        main(["--title", "Custom Title", str(p)])
 
-    client.search_track.assert_called_once()
-    call_args = client.search_track.call_args
-    assert call_args[0][0] == "Custom Title"
+    finder.find.assert_called_once()
+    assert finder.find.call_args[0][0] == "Custom Title"
