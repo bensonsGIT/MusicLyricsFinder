@@ -162,38 +162,22 @@ _SYNC_WORKERS = 20
 
 @app.route("/api/ipod/lyrics-status", methods=["POST"])
 def ipod_lyrics_status():
-    """Diagnostic: report how many tracks have lyrics in the DB vs audio files."""
+    """Diagnostic: report how many tracks have lyrics in the DB."""
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
     if err:
         return jsonify({"error": err}), 404
     try:
-        from ipod_manager.manager import IpodManager, _accessible
+        from ipod_manager.manager import IpodManager
         mgr = IpodManager(mount)
         db = mgr._load_db()
-        in_db = sum(1 for t in db.tracks if t.lyrics)
-        in_file = 0
-        missing = 0
-        sample = []  # first 5 tracks with lyrics in DB
-        for t in db.tracks:
-            local = t.local_path(mount.root)
-            if not _accessible(local):
-                missing += 1
-                continue
-            try:
-                meta = read_metadata(local)
-                if meta.get("lyrics"):
-                    in_file += 1
-            except Exception:
-                pass
-            if t.lyrics and len(sample) < 5:
-                sample.append({"id": t.track_id, "title": t.title,
-                                "lyrics_preview": t.lyrics[:80]})
+        with_lyrics = [t for t in db.tracks if t.lyrics]
+        sample = [{"id": t.track_id, "title": t.title,
+                   "lyrics_preview": t.lyrics[:80]}
+                  for t in with_lyrics[:5]]
         return jsonify({
             "total": len(db.tracks),
-            "lyrics_in_db": in_db,
-            "lyrics_in_file": in_file,
-            "missing_files": missing,
+            "lyrics_in_db": len(with_lyrics),
             "sample": sample,
         })
     except Exception as e:
