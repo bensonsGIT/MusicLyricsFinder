@@ -265,7 +265,7 @@ class iTunesDB:
         if str_start + str_len > len(data):
             return ""
         raw = data[str_start : str_start + str_len]
-        return raw.decode("utf-8" if encoding == 1 else "utf-16-le", errors="replace")
+        return raw.decode("utf-8" if encoding == 1 else "utf-16-le", errors="replace").rstrip("\x00")
 
     # ----------------------------------------------------------------- write
 
