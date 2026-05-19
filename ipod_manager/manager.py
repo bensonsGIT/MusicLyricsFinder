@@ -141,38 +141,73 @@ class IpodManager:
         title: str | None = None,
         artist: str | None = None,
         album: str | None = None,
+        album_artist: str | None = None,
         genre: str | None = None,
         year: int | None = None,
         track_number: int | None = None,
+        composer: str | None = None,
+        comment: str | None = None,
     ) -> bool:
         """Update tag fields on both the audio file and the database entry."""
-        from lyrics_finder.metadata import write_lyrics
-
         db = self._load_db()
         target = next((t for t in db.tracks if t.track_id == track_id), None)
         if target is None:
             return False
-
-        if title is not None:
-            target.title = title
-        if artist is not None:
-            target.artist = artist
-        if album is not None:
-            target.album = album
-        if genre is not None:
-            target.genre = genre
-        if year is not None:
-            target.year = year
-        if track_number is not None:
-            target.track_number = track_number
-
+        _apply_fields(target, title, artist, album, genre, year, track_number)
         local = target.local_path(self.mount.root)
         if local.exists():
-            _write_audio_meta(local, target)
-
+            _write_meta_to_file(local, title=title, artist=artist, album=album,
+                                album_artist=album_artist, genre=genre,
+                                year=str(year) if year else None,
+                                track_number=str(track_number) if track_number else None,
+                                composer=composer, comment=comment)
         if not self.mount.rockbox:
             self._save_db(db)
         return True
+
+    def update_all_tracks(
+        self,
+        *,
+        title: str | None = None,
+        artist: str | None = None,
+        album: str | None = None,
+        album_artist: str | None = None,
+        genre: str | None = None,
+        year: int | None = None,
+        track_number: int | None = None,
+        composer: str | None = None,
+        comment: str | None = None,
+    ) -> tuple[int, int]:
+        """
+        Apply the given fields to every track on the iPod.
+
+        Only supplied (non-None) arguments are written; others are left alone.
+        Returns (updated, failed) counts.
+        """
+        tracks = self.list_tracks()
+        updated = failed = 0
+        for track in tracks:
+            try:
+                local = track.local_path(self.mount.root)
+                if not local.exists():
+                    failed += 1
+                    continue
+                _write_meta_to_file(local, title=title, artist=artist, album=album,
+                                    album_artist=album_artist, genre=genre,
+                                    year=str(year) if year else None,
+                                    track_number=str(track_number) if track_number else None,
+                                    composer=composer, comment=comment)
+                updated += 1
+            except Exception:
+                failed += 1
+
+        if not self.mount.rockbox:
+            db = self._load_db()
+            for track in db.tracks:
+                _apply_fields(track, title, artist, album, genre, year, track_number)
+            self._save_db(db)
+
+        return updated, failed
 
     # --------------------------------------------------------------- private
 
@@ -282,44 +317,22 @@ def _read_audio_meta(path: Path) -> dict:
     return meta
 
 
-def _write_audio_meta(path: Path, t: Track) -> None:
-    from mutagen.id3 import TIT2, TPE1, TALB, TCON, TRCK, TDRC
-    suffix = path.suffix.lower()
-    if suffix == ".mp3":
-        try:
-            tags = ID3(path)
-        except ID3NoHeaderError:
-            tags = ID3()
-        if t.title:
-            tags["TIT2"] = TIT2(encoding=3, text=t.title)
-        if t.artist:
-            tags["TPE1"] = TPE1(encoding=3, text=t.artist)
-        if t.album:
-            tags["TALB"] = TALB(encoding=3, text=t.album)
-        if t.genre:
-            tags["TCON"] = TCON(encoding=3, text=t.genre)
-        if t.track_number:
-            tags["TRCK"] = TRCK(encoding=3, text=str(t.track_number))
-        if t.year:
-            tags["TDRC"] = TDRC(encoding=3, text=str(t.year))
-        tags.save(path)
-    elif suffix in (".m4a", ".aac"):
-        audio = MP4(path)
-        if audio.tags is None:
-            audio.add_tags()
-        if t.title:
-            audio.tags["\xa9nam"] = [t.title]
-        if t.artist:
-            audio.tags["\xa9ART"] = [t.artist]
-        if t.album:
-            audio.tags["\xa9alb"] = [t.album]
-        if t.genre:
-            audio.tags["\xa9gen"] = [t.genre]
-        if t.track_number:
-            audio.tags["trkn"] = [(t.track_number, 0)]
-        if t.year:
-            audio.tags["\xa9day"] = [str(t.year)]
-        audio.save()
+def _apply_fields(track: Track, title, artist, album, genre, year, track_number) -> None:
+    """Copy non-None values into a Track dataclass."""
+    if title is not None:        track.title = title
+    if artist is not None:       track.artist = artist
+    if album is not None:        track.album = album
+    if genre is not None:        track.genre = genre
+    if year is not None:         track.year = year
+    if track_number is not None: track.track_number = track_number
+
+
+def _write_meta_to_file(path: Path, **kwargs) -> None:
+    """Write only the supplied (non-None) kwargs to the audio file."""
+    from lyrics_finder.metadata import write_metadata
+    filtered = {k: v for k, v in kwargs.items() if v is not None}
+    if filtered:
+        write_metadata(path, **filtered)
 
 
 def _file_type(suffix: str) -> str:

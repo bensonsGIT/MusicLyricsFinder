@@ -116,20 +116,10 @@ def cmd_sync_lyrics(args: argparse.Namespace) -> int:
 
 def cmd_update(args: argparse.Namespace) -> int:
     mgr = _get_manager(args)
-    kwargs = {}
-    if args.title:
-        kwargs["title"] = args.title
-    if args.artist:
-        kwargs["artist"] = args.artist
-    if args.album:
-        kwargs["album"] = args.album
-    if args.genre:
-        kwargs["genre"] = args.genre
-    if args.year:
-        kwargs["year"] = args.year
-    if args.track_number:
-        kwargs["track_number"] = args.track_number
-
+    kwargs = _metadata_kwargs(args)
+    if not kwargs:
+        print("[error] Specify at least one field to update.", file=sys.stderr)
+        return 1
     ok = mgr.update_metadata(args.track_id, **kwargs)
     if ok:
         print(f"[ok] Track {args.track_id} updated.")
@@ -138,7 +128,58 @@ def cmd_update(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_update_all(args: argparse.Namespace) -> int:
+    mgr = _get_manager(args)
+    kwargs = _metadata_kwargs(args)
+    if not kwargs:
+        print("[error] Specify at least one field to update.", file=sys.stderr)
+        return 1
+
+    fields = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
+    tracks = mgr.list_tracks()
+    print(f"Updating {len(tracks)} track(s): {fields}")
+
+    updated, failed = mgr.update_all_tracks(**kwargs)
+    print(f"\n[ok] {updated} updated, {failed} failed.")
+    if mgr.mount.rockbox and updated:
+        print("[info] Rockbox: run 'Initialize Now' in Settings > Database to refresh.")
+    return 0 if failed == 0 else 1
+
+
+def _metadata_kwargs(args: argparse.Namespace) -> dict:
+    """Collect only the non-empty metadata flags from parsed args."""
+    mapping = {
+        "title": getattr(args, "title", ""),
+        "artist": getattr(args, "artist", ""),
+        "album": getattr(args, "album", ""),
+        "album_artist": getattr(args, "album_artist", ""),
+        "genre": getattr(args, "genre", ""),
+        "composer": getattr(args, "composer", ""),
+        "comment": getattr(args, "comment", ""),
+    }
+    result = {k: v for k, v in mapping.items() if v}
+    if getattr(args, "year", 0):
+        result["year"] = args.year
+    if getattr(args, "track_number", 0):
+        result["track_number"] = args.track_number
+    return result
+
+
 # ------------------------------------------------------------------ parser
+
+def _add_metadata_args(p: argparse.ArgumentParser) -> None:
+    """Attach all optional metadata flags to a subparser."""
+    p.add_argument("--title",        default="", help="Track title")
+    p.add_argument("--artist",       default="", help="Track artist")
+    p.add_argument("--album",        default="", help="Album name")
+    p.add_argument("--album-artist", default="", dest="album_artist", help="Album artist")
+    p.add_argument("--genre",        default="", help="Genre")
+    p.add_argument("--composer",     default="", help="Composer")
+    p.add_argument("--comment",      default="", help="Comment tag")
+    p.add_argument("--year",         type=int, default=0, help="Release year")
+    p.add_argument("--track-number", type=int, default=0, metavar="N", dest="track_number",
+                   help="Track number")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -192,16 +233,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_sl.set_defaults(func=cmd_sync_lyrics)
 
-    # update
+    # update (single track)
     p_up = sub.add_parser("update", help="Edit metadata for a single track")
     p_up.add_argument("track_id", type=int, metavar="ID", help="Track ID to update")
-    p_up.add_argument("--title", default="")
-    p_up.add_argument("--artist", default="")
-    p_up.add_argument("--album", default="")
-    p_up.add_argument("--genre", default="")
-    p_up.add_argument("--year", type=int, default=0)
-    p_up.add_argument("--track-number", type=int, default=0, metavar="N", dest="track_number")
+    _add_metadata_args(p_up)
     p_up.set_defaults(func=cmd_update)
+
+    # update-all (every track on the iPod)
+    p_ua = sub.add_parser("update-all", help="Apply metadata changes to every track on the iPod")
+    _add_metadata_args(p_ua)
+    p_ua.set_defaults(func=cmd_update_all)
 
     return parser
 
