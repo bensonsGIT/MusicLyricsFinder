@@ -19,12 +19,6 @@ def _get_manager(args: argparse.Namespace) -> IpodManager:
         sys.exit(1)
     mode = "Rockbox" if mount.rockbox else "stock firmware"
     print(f"[info] iPod found: {mount.root}  ({mode})")
-    if not mount.rockbox:
-        print(
-            "[warn] Stock firmware detected. The written iTunesDB does not include\n"
-            "       the proprietary hash required by iPod Classic 6G/7G. If the iPod\n"
-            "       refuses to load music, enable Rockbox or apply the hash with libgpod."
-        )
     return IpodManager(mount)
 
 
@@ -81,6 +75,8 @@ def cmd_add(args: argparse.Namespace) -> int:
     print(f"\n{added}/{len(paths)} file(s) added.")
     if mgr.mount.rockbox:
         print("[info] Rockbox: run 'Initialize Now' in Settings > Database to refresh.")
+    else:
+        _print_hash_status(mgr)
     return 0 if added == len(paths) else 1
 
 
@@ -96,6 +92,8 @@ def cmd_remove(args: argparse.Namespace) -> int:
             print(f"[warn] Track {tid} not found.", file=sys.stderr)
     if mgr.mount.rockbox and removed:
         print("[info] Rockbox: run 'Initialize Now' in Settings > Database to refresh.")
+    elif removed:
+        _print_hash_status(mgr)
     return 0 if removed == len(args.track_ids) else 1
 
 
@@ -260,6 +258,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 # ------------------------------------------------------------------ util
+
+def _print_hash_status(mgr) -> None:
+    method = getattr(mgr, "_last_hash_method", None)
+    if method is None:
+        return
+    if method.startswith("error:"):
+        print(f"[warn] iTunesDB hash not applied: {method[6:].strip()}", file=sys.stderr)
+        print("[warn] iPod Classic 6G/7G may refuse to load the library.", file=sys.stderr)
+        print("[warn] Install libgpod to fix:  brew install libgpod", file=sys.stderr)
+    else:
+        print(f"[info] iTunesDB hash applied ({method}).")
+
 
 def _fmt_duration(ms: int) -> str:
     if not ms:

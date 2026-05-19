@@ -230,10 +230,19 @@ class IpodManager:
         return self._db
 
     def _save_db(self, db: iTunesDB) -> None:
+        from .hash import apply_hash
         db_path = self.mount.itunesdb_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
         db.write(db_path)
         self._db = db
+        # Apply the firmware hash required by iPod Classic 6G/7G stock firmware.
+        # Failures are non-fatal: the DB is still written; warn at the call site.
+        try:
+            self._last_hash_method = apply_hash(db_path, self.mount.root)
+        except RuntimeError as exc:
+            self._last_hash_method = f"error: {exc}"
+        except Exception as exc:
+            self._last_hash_method = f"error: {exc}"
 
     def _scan_tracks(self) -> list[Track]:
         """Build track list by scanning audio files (used for Rockbox mode)."""
