@@ -120,9 +120,10 @@ class IpodManager:
         results: dict[str, str] = {}
         for track in self.list_tracks():
             local = track.local_path(self.mount.root)
-            if not local.exists():
-                continue
             key = track.title or local.name
+            if not local.exists():
+                results[key] = f"file not found: {local}"
+                continue
             lyrics, source = finder.find(track.title, track.artist, track.album)
             if lyrics:
                 try:
