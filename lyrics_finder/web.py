@@ -293,6 +293,35 @@ def ipod_remove():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/ipod/track-lyrics", methods=["POST"])
+def ipod_track_lyrics():
+    data = request.get_json(force=True) or {}
+    mount, err = _get_mount(data.get("mount", "").strip())
+    if err:
+        return jsonify({"error": err}), 404
+    track_id = data.get("track_id")
+    if track_id is None:
+        return jsonify({"error": "track_id required"}), 400
+    lyrics_text = data.get("lyrics")  # None = read, str = write
+    try:
+        from ipod_manager.manager import IpodManager
+        mgr = IpodManager(mount)
+        db = mgr._load_db()
+        target = next((t for t in db.tracks if t.track_id == int(track_id)), None)
+        if target is None:
+            return jsonify({"error": f"Track {track_id} not found"}), 404
+        local = target.local_path(mount.root)
+        if not local.exists():
+            return jsonify({"error": f"File not found on iPod: {local.name}"}), 404
+        meta = read_metadata(local)
+        if lyrics_text is not None:
+            write_lyrics(local, lyrics_text)
+            return jsonify({"ok": True, "lyrics": lyrics_text})
+        return jsonify({"lyrics": meta.get("lyrics", ""), "has_lyrics": bool(meta.get("lyrics"))})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/ipod/update", methods=["POST"])
 def ipod_update():
     data = request.get_json(force=True) or {}
