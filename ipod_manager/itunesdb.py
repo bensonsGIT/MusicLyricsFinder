@@ -35,6 +35,7 @@ MHOD_FILETYPE = 6
 MHOD_COMMENT = 8
 MHOD_COMPOSER = 12
 MHOD_GROUPING = 13
+MHOD_LYRICS = 52  # stored in iTunesDB for stock firmware playback
 
 # Mac/HFS epoch is 1904-01-01; Unix epoch is 1970-01-01
 _MAC_OFFSET = 2082844800
@@ -76,6 +77,7 @@ class Track:
     play_count: int = 0
     last_played: int = 0   # unix timestamp
     file_type: str = ""    # "MP3 ", "M4A ", …
+    lyrics: str = ""       # stored in MHOD type 52 for stock firmware
 
     def local_path(self, mount: Path) -> Path:
         """Resolve the iPod colon-path to an absolute filesystem path.
@@ -233,7 +235,7 @@ class iTunesDB:
             mhod_type = struct.unpack_from("<I", data, mhod_pos + 12)[0]
             if mhod_type in (
                 MHOD_TITLE, MHOD_FILENAME, MHOD_ALBUM, MHOD_ARTIST,
-                MHOD_GENRE, MHOD_COMPOSER, MHOD_COMMENT,
+                MHOD_GENRE, MHOD_COMPOSER, MHOD_COMMENT, MHOD_LYRICS,
             ):
                 value = self._parse_mhod_string(data, mhod_pos)
                 if mhod_type == MHOD_TITLE:
@@ -250,6 +252,8 @@ class iTunesDB:
                     t.composer = value
                 elif mhod_type == MHOD_COMMENT:
                     t.comment = value
+                elif mhod_type == MHOD_LYRICS:
+                    t.lyrics = value
             mhod_pos += mhod_total
 
         return t, pos + total_size
@@ -322,6 +326,7 @@ class iTunesDB:
             (MHOD_GENRE, t.genre),
             (MHOD_COMPOSER, t.composer),
             (MHOD_COMMENT, t.comment),
+            (MHOD_LYRICS, t.lyrics),
         ]:
             if value:
                 mhods.append(self._build_mhod_string(mtype, value))

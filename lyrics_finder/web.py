@@ -163,8 +163,7 @@ _SYNC_WORKERS = 20
 @app.route("/api/ipod/sync-lyrics")
 def ipod_sync_lyrics():
     import json as _json
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from queue import Queue, Empty
+    from concurrent.futures import ThreadPoolExecutor
 
     mount_path = request.args.get("mount", "").strip()
     musixmatch_key = request.args.get("musixmatch_key", "").strip()
@@ -183,28 +182,37 @@ def ipod_sync_lyrics():
             finder = LyricsFinder(musixmatch_key=musixmatch_key)
             total = len(tracks)
             found = 0
-            q: Queue = Queue()
+
+            db = mgr._load_db()
+            db_by_id = {t.track_id: t for t in db.tracks}
+            db_dirty = False
 
             def _process(indexed_track):
                 i, track = indexed_track
                 local = track.local_path(mount.root)
                 key = track.title or local.name
                 if not _accessible(local):
-                    return {'i': i, 'total': total, 'track': key, 'status': 'missing'}
+                    return {'i': i, 'total': total, 'track': key, 'status': 'missing'}, None, None
                 lyrics, source = finder.find(track.title, track.artist, track.album)
                 if lyrics:
                     try:
                         write_lyrics(local, lyrics, track.title, track.artist, track.album)
-                        return {'i': i, 'total': total, 'track': key, 'status': 'found', 'source': source}
+                        return {'i': i, 'total': total, 'track': key, 'status': 'found', 'source': source}, track.track_id, lyrics
                     except Exception as exc:
-                        return {'i': i, 'total': total, 'track': key, 'status': 'error', 'error': str(exc)}
-                return {'i': i, 'total': total, 'track': key, 'status': 'not_found'}
+                        return {'i': i, 'total': total, 'track': key, 'status': 'error', 'error': str(exc)}, None, None
+                return {'i': i, 'total': total, 'track': key, 'status': 'not_found'}, None, None
 
             with ThreadPoolExecutor(max_workers=_SYNC_WORKERS) as ex:
-                for event in ex.map(_process, enumerate(tracks, 1)):
+                for event, tid, lyrics in ex.map(_process, enumerate(tracks, 1)):
                     if event['status'] == 'found':
                         found += 1
+                        if tid is not None and tid in db_by_id:
+                            db_by_id[tid].lyrics = lyrics
+                            db_dirty = True
                     yield f"data: {_json.dumps(event)}\n\n"
+
+            if db_dirty and not mount.rockbox:
+                mgr._save_db(db)
 
             yield f"data: {_json.dumps({'done': True, 'found': found, 'total': total})}\n\n"
         except Exception as e:
@@ -288,6 +296,7 @@ def ipod_remove():
 
 @app.route("/api/ipod/track-lyrics", methods=["POST"])
 def ipod_track_lyrics():
+    """Read lyrics from a track file, or write them (file + DB) when 'lyrics' key is present."""
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
     if err:
@@ -306,11 +315,43 @@ def ipod_track_lyrics():
         local = target.local_path(mount.root)
         if not local.exists():
             return jsonify({"error": f"File not found on iPod: {local.name}"}), 404
-        meta = read_metadata(local)
         if lyrics_text is not None:
-            write_lyrics(local, lyrics_text)
+            mgr.update_lyrics(int(track_id), lyrics_text)
             return jsonify({"ok": True, "lyrics": lyrics_text})
-        return jsonify({"lyrics": meta.get("lyrics", ""), "has_lyrics": bool(meta.get("lyrics"))})
+        # Read — prefer DB lyrics (already parsed), fall back to file tag
+        lyrics = target.lyrics or read_metadata(local).get("lyrics", "")
+        return jsonify({"lyrics": lyrics, "has_lyrics": bool(lyrics)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ipod/update-track", methods=["POST"])
+def ipod_update_track():
+    """Update metadata and optionally lyrics in one request."""
+    data = request.get_json(force=True) or {}
+    mount, err = _get_mount(data.get("mount", "").strip())
+    if err:
+        return jsonify({"error": err}), 404
+    track_id = data.get("track_id")
+    if track_id is None:
+        return jsonify({"error": "track_id required"}), 400
+    try:
+        from ipod_manager.manager import IpodManager
+        mgr = IpodManager(mount)
+        kwargs = {k: data[k] for k in
+                  ("title", "artist", "album", "album_artist", "genre", "composer", "comment")
+                  if k in data}
+        if "year" in data:
+            kwargs["year"] = int(data["year"]) if data["year"] else None
+        if "track_number" in data:
+            kwargs["track_number"] = int(data["track_number"]) if data["track_number"] else None
+        if kwargs:
+            ok = mgr.update_metadata(int(track_id), **kwargs)
+            if not ok:
+                return jsonify({"error": f"Track {track_id} not found"}), 404
+        if "lyrics" in data:
+            mgr.update_lyrics(int(track_id), data["lyrics"])
+        return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

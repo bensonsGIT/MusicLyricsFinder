@@ -108,6 +108,29 @@ class IpodManager:
 
         return True
 
+    def update_lyrics(self, track_id: int, lyrics: str) -> bool:
+        """Write *lyrics* to the audio file and the iTunesDB entry.
+
+        Stock firmware iPods read lyrics from the DB; writing to the file
+        alone is not enough. This method updates both.
+        """
+        from lyrics_finder.metadata import write_lyrics as _write_lyrics
+
+        db = self._load_db()
+        target = next((t for t in db.tracks if t.track_id == track_id), None)
+        if target is None:
+            return False
+
+        local = target.local_path(self.mount.root)
+        if local.exists():
+            _write_lyrics(local, lyrics, target.title, target.artist, target.album)
+
+        target.lyrics = lyrics
+
+        if not self.mount.rockbox:
+            self._save_db(db)
+        return True
+
     def sync_lyrics(self, finder, *, workers: int = 20) -> dict[str, str]:
         """
         Find and embed lyrics for every track on the iPod.
@@ -120,25 +143,35 @@ class IpodManager:
         from lyrics_finder.metadata import write_lyrics
 
         _unhide_ipod_dirs(self.mount.root)
+        db = self._load_db()
+        db_by_id = {t.track_id: t for t in db.tracks}
+        db_dirty = False
 
         def _process(track):
             local = track.local_path(self.mount.root)
             key = track.title or local.name
             if not _accessible(local):
-                return key, f"file not found: {local}"
+                return key, "not found (file missing)", None, None
             lyrics, source = finder.find(track.title, track.artist, track.album)
             if lyrics:
                 try:
                     write_lyrics(local, lyrics, track.title, track.artist, track.album)
-                    return key, source
+                    return key, source, track.track_id, lyrics
                 except Exception as exc:
-                    return key, f"error: {exc}"
-            return key, "not found"
+                    return key, f"error: {exc}", None, None
+            return key, "not found", None, None
 
         results: dict[str, str] = {}
+        nonlocal_dirty = [False]
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            for key, status in ex.map(_process, self.list_tracks()):
+            for key, status, tid, lyrics in ex.map(_process, self.list_tracks()):
                 results[key] = status
+                if tid is not None and tid in db_by_id:
+                    db_by_id[tid].lyrics = lyrics
+                    nonlocal_dirty[0] = True
+
+        if nonlocal_dirty[0] and not self.mount.rockbox:
+            self._save_db(db)
         return results
 
     def update_metadata(
