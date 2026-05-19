@@ -145,13 +145,36 @@ class iTunesDB:
             pos += advance
 
     def _parse_mhlt(self, data: bytes, pos: int) -> None:
-        hdr_size = struct.unpack_from("<I", data, pos + 4)[0]
-        num_tracks = struct.unpack_from("<I", data, pos + 8)[0]
-        pos += hdr_size
-        for _ in range(num_tracks):
-            if pos + 4 > len(data) or data[pos : pos + 4] != MHIT:
+        stored_hdr = struct.unpack_from("<I", data, pos + 4)[0]
+        num_tracks  = struct.unpack_from("<I", data, pos + 8)[0]
+
+        # Locate the first mhit record. Standard layout puts it at
+        # pos + header_size, but some DB versions report a different value
+        # (e.g. total record size instead of header size). Try a set of
+        # known header sizes before falling back to a forward scan.
+        track_start: int | None = None
+        for candidate in (stored_hdr, 0x5C, 0x68, 0x9C, 0x148):
+            off = pos + candidate
+            if off + 4 <= len(data) and data[off : off + 4] == MHIT:
+                track_start = off
                 break
-            track, pos = self._parse_mhit(data, pos)
+
+        if track_start is None:
+            # Last resort: scan byte-by-byte up to 4 KB ahead
+            for off in range(pos + 4, min(pos + 4096, len(data) - 3)):
+                if data[off : off + 4] == MHIT:
+                    track_start = off
+                    break
+
+        if track_start is None:
+            return
+
+        limit = num_tracks if 0 < num_tracks < 1_000_000 else 1_000_000
+        cur = track_start
+        for _ in range(limit):
+            if cur + 4 > len(data) or data[cur : cur + 4] != MHIT:
+                break
+            track, cur = self._parse_mhit(data, cur)
             self.tracks.append(track)
 
     def _parse_mhit(self, data: bytes, pos: int) -> tuple["Track", int]:
