@@ -313,6 +313,70 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
 #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 
 .hidden { display: none !important; }
+
+/* ── iPod section ── */
+.section-divider {
+  display: flex; align-items: center; gap: 14px;
+  color: var(--text-muted); font-size: .72rem; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.section-divider::before, .section-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+.track-table-wrap { overflow-x: auto; }
+.track-table {
+  width: 100%; border-collapse: collapse;
+  font-size: .82rem;
+}
+.track-table th {
+  text-align: left; padding: 9px 14px;
+  font-size: .72rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.track-table td {
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  color: var(--text-dim); vertical-align: middle;
+}
+.track-table tr:last-child td { border-bottom: none; }
+.track-table tr:hover td { background: var(--card-hover); }
+.track-table td.td-num { color: var(--text-muted); width: 42px; text-align: right; }
+.track-table td.td-title { color: var(--text); font-weight: 500; max-width: 220px; }
+.track-table td.td-trunc { max-width: 160px; }
+.track-table td.td-dur { white-space: nowrap; color: var(--text-muted); }
+.track-table td.td-acts { white-space: nowrap; text-align: right; }
+.track-table .cell-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+
+/* inline edit row */
+.edit-row td { background: var(--surface); padding: 12px 14px; }
+.edit-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px; margin-bottom: 10px;
+}
+.edit-grid label { font-size: .75rem; color: var(--text-muted); margin-bottom: 4px; display: block; }
+.edit-grid input { font-size: .82rem; padding: 7px 10px; }
+.edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* add-track form */
+.add-form-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px; margin-top: 14px;
+}
+
+/* sync log */
+.sync-log {
+  font-size: .75rem; color: var(--text-muted);
+  max-height: 120px; overflow-y: auto;
+  margin-top: 8px; padding: 8px 10px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  display: none;
+}
+.sync-log.visible { display: block; }
+.sync-log .log-ok   { color: var(--success); }
+.sync-log .log-miss { color: var(--warn); }
+.sync-log .log-err  { color: var(--error); }
 </style>
 </head>
 <body>
@@ -393,6 +457,120 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
   <!-- File list -->
   <div id="file-list-section" class="hidden">
     <div id="file-list"></div>
+  </div>
+
+  <!-- ═══════════════════════ iPod Manager ═══════════════════════ -->
+  <div class="section-divider">🎧 iPod Classic Manager</div>
+
+  <!-- Connect panel -->
+  <div class="panel">
+    <div class="panel-header"><span>🔌</span> Connect</div>
+    <div class="panel-body">
+      <div class="scan-row">
+        <div class="path-wrap">
+          <label for="ipod-mount">iPod mount point</label>
+          <input type="text" id="ipod-mount" placeholder="/Volumes/IPOD  (leave blank to auto-detect)">
+        </div>
+        <button class="btn-primary" id="btn-ipod-connect">
+          <span id="ipod-connect-label">Connect</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats + controls (hidden until connected) -->
+  <div id="ipod-main" class="hidden">
+    <div class="panel">
+      <div class="panel-body">
+        <div class="stats-bar">
+          <div class="stat-pill"><span class="dot dot-total"></span><span id="ipod-stat-tracks">0 tracks</span></div>
+          <div class="stat-pill" id="ipod-stat-fw-pill"><span id="ipod-stat-fw">—</span></div>
+          <div class="stat-pill" id="ipod-stat-root-pill" style="font-size:.72rem;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span id="ipod-stat-root">—</span></div>
+          <div class="spacer"></div>
+          <button class="btn-ghost btn-sm" id="btn-ipod-refresh">↺ Refresh</button>
+          <button class="btn-ghost btn-sm" id="btn-ipod-add-toggle">+ Add Track</button>
+          <button class="btn-primary" id="btn-sync-lyrics">♪ Sync Lyrics</button>
+        </div>
+        <!-- Sync progress -->
+        <div class="progress-wrap" id="ipod-progress-wrap">
+          <div class="progress-track"><div class="progress-fill" id="ipod-progress-fill"></div></div>
+          <div class="progress-label" id="ipod-progress-label"></div>
+        </div>
+        <div class="sync-log" id="sync-log"></div>
+      </div>
+    </div>
+
+    <!-- Add-track form -->
+    <div id="ipod-add-form" class="panel hidden">
+      <div class="panel-header"><span>+</span> Add Track to iPod</div>
+      <div class="panel-body">
+        <div class="scan-row">
+          <div class="path-wrap">
+            <label>Audio file <em style="color:var(--text-muted);font-style:normal">(MP3, M4A or AAC)</em></label>
+            <input type="file" id="ipod-add-file" accept=".mp3,.m4a,.aac" style="color:var(--text-dim);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;width:100%">
+          </div>
+        </div>
+        <div class="add-form-grid">
+          <div><label>Title override</label><input type="text" id="add-title" placeholder="(read from file)"></div>
+          <div><label>Artist override</label><input type="text" id="add-artist" placeholder="(read from file)"></div>
+          <div><label>Album override</label><input type="text" id="add-album" placeholder="(read from file)"></div>
+          <div><label>Genre override</label><input type="text" id="add-genre" placeholder="(read from file)"></div>
+          <div><label>Year</label><input type="text" id="add-year" placeholder="e.g. 2024"></div>
+          <div><label>Track #</label><input type="text" id="add-tracknum" placeholder="e.g. 1"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+          <button class="btn-ghost btn-sm" id="btn-add-cancel">Cancel</button>
+          <button class="btn-primary" id="btn-add-confirm">Add to iPod</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Track list -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>🎵</span> Library
+        <span id="ipod-track-badge" style="margin-left:6px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:2px 8px;font-size:.72rem;color:var(--text-muted)"></span>
+        <div style="flex:1"></div>
+        <input type="text" id="ipod-search" placeholder="Filter…" style="width:180px;padding:5px 10px;font-size:.78rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+      </div>
+      <div class="track-table-wrap">
+        <table class="track-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Title</th>
+              <th>Artist</th>
+              <th>Album</th>
+              <th>Dur</th>
+              <th style="text-align:right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ipod-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit modal -->
+  <div id="edit-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:none;align-items:center;justify-content:center">
+    <div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);width:min(520px,95vw);padding:24px;box-shadow:var(--shadow)">
+      <div style="font-weight:700;font-size:1rem;margin-bottom:18px">Edit Metadata</div>
+      <input type="hidden" id="edit-track-id">
+      <div class="edit-grid">
+        <div><label>Title</label><input type="text" class="edit-field" data-field="title" id="ef-title"></div>
+        <div><label>Artist</label><input type="text" class="edit-field" data-field="artist" id="ef-artist"></div>
+        <div><label>Album</label><input type="text" class="edit-field" data-field="album" id="ef-album"></div>
+        <div><label>Album Artist</label><input type="text" class="edit-field" data-field="album_artist" id="ef-album-artist"></div>
+        <div><label>Genre</label><input type="text" class="edit-field" data-field="genre" id="ef-genre"></div>
+        <div><label>Year</label><input type="text" class="edit-field" data-field="year" id="ef-year"></div>
+        <div><label>Track #</label><input type="text" class="edit-field" data-field="track_number" id="ef-tracknum"></div>
+        <div><label>Composer</label><input type="text" class="edit-field" data-field="composer" id="ef-composer"></div>
+      </div>
+      <div class="edit-actions" style="margin-top:16px">
+        <button class="btn-ghost btn-sm" id="btn-edit-cancel">Cancel</button>
+        <button class="btn-primary btn-sm" id="btn-edit-save">Save</button>
+      </div>
+    </div>
   </div>
 
 </main>
@@ -732,6 +910,307 @@ $('btn-clear').addEventListener('click', () => {
 // ── Escape HTML ────────────────────────────────────────────────────────────
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// iPod Manager
+// ══════════════════════════════════════════════════════════════════════════
+
+const ipod = {
+  mount: '',
+  tracks: [],
+  syncing: false,
+};
+
+function ipodMount() { return $('ipod-mount').value.trim(); }
+
+// ── Connect ───────────────────────────────────────────────────────────────
+$('btn-ipod-connect').addEventListener('click', ipodConnect);
+$('ipod-mount').addEventListener('keydown', e => { if (e.key === 'Enter') ipodConnect(); });
+
+async function ipodConnect() {
+  const btn = $('btn-ipod-connect');
+  $('ipod-connect-label').textContent = '…';
+  btn.disabled = true;
+  try {
+    const res  = await fetch('/api/ipod/detect', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({mount: ipodMount()}),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Connection failed', 'error'); return; }
+
+    ipod.mount = data.root;
+    $('ipod-stat-tracks').textContent = `${data.track_count} track${data.track_count !== 1 ? 's' : ''}`;
+    $('ipod-stat-fw').textContent = `💿 ${data.firmware}`;
+    $('ipod-stat-root').textContent = data.root;
+    $('ipod-main').classList.remove('hidden');
+    showToast(`Connected: ${data.root}`, 'success');
+    await ipodLoadTracks();
+  } catch(e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    $('ipod-connect-label').textContent = 'Connect';
+    btn.disabled = false;
+  }
+}
+
+// ── Load tracks ───────────────────────────────────────────────────────────
+$('btn-ipod-refresh').addEventListener('click', ipodLoadTracks);
+
+async function ipodLoadTracks() {
+  $('ipod-tbody').innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px">Loading…</td></tr>`;
+  try {
+    const res  = await fetch('/api/ipod/tracks', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({mount: ipod.mount}),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Failed to load tracks', 'error'); return; }
+    ipod.tracks = data.tracks;
+    ipodRenderTracks(ipod.tracks);
+    $('ipod-track-badge').textContent = `${ipod.tracks.length} tracks`;
+  } catch(e) {
+    showToast('Network error: ' + e.message, 'error');
+  }
+}
+
+// ── Render tracks ─────────────────────────────────────────────────────────
+$('ipod-search').addEventListener('input', () => {
+  const q = $('ipod-search').value.toLowerCase();
+  const filtered = q
+    ? ipod.tracks.filter(t =>
+        (t.title+t.artist+t.album).toLowerCase().includes(q))
+    : ipod.tracks;
+  ipodRenderTracks(filtered);
+});
+
+function ipodRenderTracks(tracks) {
+  const tbody = $('ipod-tbody');
+  if (!tracks.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:40px">No tracks found</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = '';
+  tracks.forEach(t => tbody.appendChild(buildTrackRow(t)));
+}
+
+function buildTrackRow(t) {
+  const tr = document.createElement('tr');
+  tr.id = `itr-${t.id}`;
+  const dur = fmtDur(t.duration);
+  tr.innerHTML = `
+    <td class="td-num">${t.id}</td>
+    <td class="td-title"><span class="cell-text" title="${esc(t.title)}">${esc(t.title || '—')}</span></td>
+    <td class="td-trunc"><span class="cell-text" title="${esc(t.artist)}">${esc(t.artist || '—')}</span></td>
+    <td class="td-trunc"><span class="cell-text" title="${esc(t.album)}">${esc(t.album || '—')}</span></td>
+    <td class="td-dur">${dur}</td>
+    <td class="td-acts">
+      <button class="btn-ghost btn-sm" onclick="openEditModal(${t.id})">✎</button>
+      <button class="btn-ghost btn-sm" style="color:var(--error)" onclick="ipodRemove(${t.id}, this)">✕</button>
+    </td>
+  `;
+  return tr;
+}
+
+function fmtDur(ms) {
+  if (!ms) return '—';
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+// ── Remove track ──────────────────────────────────────────────────────────
+async function ipodRemove(trackId, btn) {
+  if (!confirm(`Remove track #${trackId} from iPod?`)) return;
+  btn.disabled = true;
+  try {
+    const res  = await fetch('/api/ipod/remove', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({mount: ipod.mount, track_id: trackId}),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Remove failed', 'error'); btn.disabled = false; return; }
+    ipod.tracks = ipod.tracks.filter(t => t.id !== trackId);
+    const row = $(`itr-${trackId}`);
+    if (row) row.remove();
+    $('ipod-track-badge').textContent = `${ipod.tracks.length} tracks`;
+    $('ipod-stat-tracks').textContent = `${ipod.tracks.length} track${ipod.tracks.length !== 1 ? 's' : ''}`;
+    showToast(`Track ${trackId} removed`, 'success');
+  } catch(e) {
+    showToast('Network error: ' + e.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+// ── Add track ─────────────────────────────────────────────────────────────
+$('btn-ipod-add-toggle').addEventListener('click', () => {
+  $('ipod-add-form').classList.toggle('hidden');
+});
+$('btn-add-cancel').addEventListener('click', () => {
+  $('ipod-add-form').classList.add('hidden');
+});
+$('btn-add-confirm').addEventListener('click', ipodAddTrack);
+
+async function ipodAddTrack() {
+  const fileInput = $('ipod-add-file');
+  if (!fileInput.files.length) { showToast('Select a file first', 'error'); return; }
+
+  const btn = $('btn-add-confirm');
+  btn.disabled = true; btn.textContent = 'Adding…';
+
+  const form = new FormData();
+  form.append('mount', ipod.mount);
+  form.append('file', fileInput.files[0]);
+  form.append('title',      $('add-title').value.trim());
+  form.append('artist',     $('add-artist').value.trim());
+  form.append('album',      $('add-album').value.trim());
+  form.append('genre',      $('add-genre').value.trim());
+  form.append('year',       $('add-year').value.trim());
+  form.append('track_number', $('add-tracknum').value.trim());
+
+  try {
+    const res  = await fetch('/api/ipod/add', {method: 'POST', body: form});
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Add failed', 'error'); return; }
+
+    const t = data.track;
+    ipod.tracks.push(t);
+    $('ipod-tbody').appendChild(buildTrackRow(t));
+    $('ipod-track-badge').textContent = `${ipod.tracks.length} tracks`;
+    $('ipod-stat-tracks').textContent = `${ipod.tracks.length} tracks`;
+    $('ipod-add-form').classList.add('hidden');
+    fileInput.value = '';
+    showToast(`Added: ${t.title || fileInput.files[0].name}`, 'success');
+  } catch(e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Add to iPod';
+  }
+}
+
+// ── Edit modal ────────────────────────────────────────────────────────────
+const editModal = $('edit-modal');
+
+function openEditModal(trackId) {
+  const t = ipod.tracks.find(t => t.id === trackId);
+  if (!t) return;
+  $('edit-track-id').value  = trackId;
+  $('ef-title').value       = t.title || '';
+  $('ef-artist').value      = t.artist || '';
+  $('ef-album').value       = t.album || '';
+  $('ef-album-artist').value = '';
+  $('ef-genre').value       = t.genre || '';
+  $('ef-year').value        = t.year || '';
+  $('ef-tracknum').value    = t.track_number || '';
+  $('ef-composer').value    = '';
+  editModal.style.display   = 'flex';
+}
+
+$('btn-edit-cancel').addEventListener('click', () => { editModal.style.display = 'none'; });
+editModal.addEventListener('click', e => { if (e.target === editModal) editModal.style.display = 'none'; });
+
+$('btn-edit-save').addEventListener('click', async () => {
+  const trackId = parseInt($('edit-track-id').value);
+  const payload = {mount: ipod.mount, track_id: trackId};
+  document.querySelectorAll('.edit-field').forEach(inp => {
+    if (inp.value !== '') payload[inp.dataset.field] = inp.value;
+  });
+
+  $('btn-edit-save').disabled = true;
+  try {
+    const res  = await fetch('/api/ipod/update', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Update failed', 'error'); return; }
+
+    // Update local state and re-render row
+    const t = ipod.tracks.find(t => t.id === trackId);
+    if (t) {
+      if (payload.title)  t.title  = payload.title;
+      if (payload.artist) t.artist = payload.artist;
+      if (payload.album)  t.album  = payload.album;
+      if (payload.genre)  t.genre  = payload.genre;
+      if (payload.year)   t.year   = parseInt(payload.year);
+      if (payload.track_number) t.track_number = parseInt(payload.track_number);
+      const row = $(`itr-${trackId}`);
+      if (row) row.replaceWith(buildTrackRow(t));
+    }
+    editModal.style.display = 'none';
+    showToast('Track updated', 'success');
+  } catch(e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    $('btn-edit-save').disabled = false;
+  }
+});
+
+// ── Sync lyrics ───────────────────────────────────────────────────────────
+$('btn-sync-lyrics').addEventListener('click', ipodSyncLyrics);
+
+function ipodSyncLyrics() {
+  if (ipod.syncing) return;
+  ipod.syncing = true;
+  $('btn-sync-lyrics').disabled = true;
+
+  const pw  = $('ipod-progress-wrap');
+  const pf  = $('ipod-progress-fill');
+  const pl  = $('ipod-progress-label');
+  const log = $('sync-log');
+  pw.classList.add('visible');
+  log.innerHTML = '';
+  log.classList.add('visible');
+
+  const params = new URLSearchParams({mount: ipod.mount, musixmatch_key: mmKey()});
+  const src = new EventSource(`/api/ipod/sync-lyrics?${params}`);
+
+  src.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+
+    if (d.error) {
+      showToast(d.error, 'error');
+      src.close(); ipod.syncing = false; $('btn-sync-lyrics').disabled = false;
+      return;
+    }
+
+    if (d.done) {
+      pf.style.width = '100%';
+      pl.textContent = `Done — ${d.found} lyrics added out of ${d.total} tracks`;
+      showToast(`Synced ${d.found}/${d.total} track${d.total !== 1 ? 's' : ''} with lyrics`, 'success');
+      src.close(); ipod.syncing = false; $('btn-sync-lyrics').disabled = false;
+      return;
+    }
+
+    const pct = Math.round((d.i / d.total) * 100);
+    pf.style.width = `${pct}%`;
+    pl.textContent = `${d.i} / ${d.total} — ${d.track}`;
+
+    if (d.status === 'found') {
+      const line = document.createElement('div');
+      line.className = 'log-ok';
+      line.textContent = `✓ ${d.track} (${d.source})`;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    } else if (d.status === 'not_found' || d.status === 'missing') {
+      // suppress — only log successes and errors to keep the log readable
+    } else if (d.status === 'error') {
+      const line = document.createElement('div');
+      line.className = 'log-err';
+      line.textContent = `✗ ${d.track}: ${d.error}`;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+  };
+
+  src.onerror = () => {
+    showToast('Sync connection lost', 'error');
+    src.close(); ipod.syncing = false; $('btn-sync-lyrics').disabled = false;
+  };
 }
 </script>
 </body>
