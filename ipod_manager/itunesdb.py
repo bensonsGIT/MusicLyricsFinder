@@ -123,12 +123,22 @@ class iTunesDB:
             if magic == MHLT:
                 self._parse_mhlt(data, pos)
                 return
-            # Newer iPod databases wrap mhlt inside mhsd section records
-            if magic == b"mhsd" and rec_hdr > 0:
+            # iTunes-synced iPods wrap mhlt inside mhsd section records.
+            # Walk inside each mhsd to find mhlt (handles all layout variants).
+            if magic == b"mhsd" and rec_hdr > 0 and rec_total > rec_hdr:
+                mhsd_end = pos + rec_total
                 inner = pos + rec_hdr
-                if inner + 4 <= len(data) and data[inner : inner + 4] == MHLT:
-                    self._parse_mhlt(data, inner)
-                    return
+                while inner + 8 < mhsd_end and inner + 8 < len(data):
+                    inner_magic = data[inner : inner + 4]
+                    inner_hdr = struct.unpack_from("<I", data, inner + 4)[0]
+                    inner_total = struct.unpack_from("<I", data, inner + 8)[0]
+                    if inner_magic == MHLT:
+                        self._parse_mhlt(data, inner)
+                        return
+                    advance = inner_total or inner_hdr
+                    if advance == 0:
+                        break
+                    inner += advance
             advance = rec_total or rec_hdr
             if advance == 0:
                 break
