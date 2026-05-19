@@ -117,11 +117,15 @@ class IpodManager:
         """
         from lyrics_finder.metadata import write_lyrics
 
+        # Ensure iPod_Control and its Music subfolder are accessible on macOS.
+        # HFS+ marks them hidden; chflags nohidden lets Python stat() them.
+        _unhide_ipod_dirs(self.mount.root)
+
         results: dict[str, str] = {}
         for track in self.list_tracks():
             local = track.local_path(self.mount.root)
             key = track.title or local.name
-            if not local.exists():
+            if not _accessible(local):
                 results[key] = f"file not found: {local}"
                 continue
             lyrics, source = finder.find(track.title, track.artist, track.album)
@@ -345,3 +349,39 @@ def _subdir_index(name: str) -> int:
         return int(name[1:])
     except (ValueError, IndexError):
         return -1
+
+
+def _accessible(path: Path) -> bool:
+    """Return True if *path* exists and is accessible (distinguishes PermissionError)."""
+    try:
+        path.stat()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+
+
+def _unhide_ipod_dirs(root: Path) -> None:
+    """Remove the macOS HFS+ 'hidden' flag from iPod_Control and its subdirs.
+
+    iTunes sets UF_HIDDEN on these folders so Finder won't show them.
+    Python's Path.stat() can still be blocked by this on some macOS versions,
+    so we clear the flag with chflags before accessing the files.
+    """
+    import subprocess
+    import sys
+    if sys.platform != "darwin":
+        return
+    targets = [
+        root / "iPod_Control",
+        root / "iPod_Control" / "Music",
+        root / "iPod_Control" / "iTunes",
+    ]
+    existing = [str(p) for p in targets if p.parent.exists()]
+    if existing:
+        try:
+            subprocess.run(["chflags", "nohidden"] + existing,
+                           capture_output=True, timeout=10)
+        except Exception:
+            pass
