@@ -598,13 +598,12 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
         <div id="lyrics-loading" style="display:none;font-size:.78rem;color:var(--text-muted);padding:8px 0">Loading…</div>
         <textarea id="ef-lyrics" rows="8" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:10px;font-size:.8rem;font-family:inherit;resize:vertical;line-height:1.5" placeholder="No lyrics embedded — click 'Load from file' to fetch, or type/paste lyrics here"></textarea>
         <div style="display:flex;gap:8px;margin-top:6px">
-          <button class="btn-ghost btn-sm" id="btn-save-lyrics" style="font-size:.72rem">💾 Save lyrics to file</button>
-          <button class="btn-ghost btn-sm" id="btn-clear-lyrics" style="font-size:.72rem;color:var(--text-muted)">✕ Clear lyrics</button>
+          <button class="btn-ghost btn-sm" id="btn-clear-lyrics" style="font-size:.72rem;color:var(--text-muted)">✕ Clear</button>
         </div>
       </div>
       <div class="edit-actions" style="margin-top:16px">
         <button class="btn-ghost btn-sm" id="btn-edit-cancel">Cancel</button>
-        <button class="btn-primary btn-sm" id="btn-edit-save">Save Metadata</button>
+        <button class="btn-primary btn-sm" id="btn-edit-save">Save</button>
       </div>
     </div>
   </div>
@@ -1284,7 +1283,9 @@ function openEditModal(trackId) {
   $('ef-year').value         = t.year || '';
   $('ef-tracknum').value     = t.track_number || '';
   $('ef-composer').value     = '';
-  $('ef-lyrics').value       = '';
+  const lyricsTA = $('ef-lyrics');
+  lyricsTA.value   = '';
+  lyricsTA._loaded = false;
   $('lyrics-loading').style.display = 'none';
   editModal.style.display    = 'flex';
 }
@@ -1304,7 +1305,9 @@ async function loadTrackLyrics() {
     });
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Failed to load lyrics', 'error'); return; }
-    $('ef-lyrics').value = data.lyrics || '';
+    const ta = $('ef-lyrics');
+    ta.value = data.lyrics || '';
+    ta._loaded = true;
     if (!data.has_lyrics) showToast('No lyrics embedded in this file', '');
   } catch(e) {
     showToast('Network error: ' + e.message, 'error');
@@ -1313,29 +1316,7 @@ async function loadTrackLyrics() {
   }
 }
 
-async function saveTrackLyrics() {
-  const trackId = parseInt($('edit-track-id').value);
-  const lyrics  = $('ef-lyrics').value;
-  const btn = $('btn-save-lyrics');
-  btn.disabled = true;
-  try {
-    const res  = await fetch('/api/ipod/track-lyrics', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({mount: ipod.mount, track_id: trackId, lyrics}),
-    });
-    const data = await res.json();
-    if (!res.ok) { showToast(data.error || 'Failed to save lyrics', 'error'); return; }
-    showToast(lyrics ? 'Lyrics saved to file' : 'Lyrics cleared from file', 'success');
-  } catch(e) {
-    showToast('Network error: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
-}
-
 $('btn-load-lyrics').addEventListener('click', loadTrackLyrics);
-$('btn-save-lyrics').addEventListener('click', saveTrackLyrics);
 $('btn-clear-lyrics').addEventListener('click', () => { $('ef-lyrics').value = ''; });
 
 $('btn-edit-save').addEventListener('click', async () => {
@@ -1344,10 +1325,15 @@ $('btn-edit-save').addEventListener('click', async () => {
   document.querySelectorAll('.edit-field').forEach(inp => {
     if (inp.value !== '') payload[inp.dataset.field] = inp.value;
   });
+  // Always include lyrics so empty-string clears them; skip if textarea untouched
+  const lyricsEl = $('ef-lyrics');
+  if (lyricsEl._loaded || lyricsEl.value !== '') {
+    payload.lyrics = lyricsEl.value;
+  }
 
   $('btn-edit-save').disabled = true;
   try {
-    const res  = await fetch('/api/ipod/update', {
+    const res  = await fetch('/api/ipod/update-track', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(payload),
@@ -1355,20 +1341,23 @@ $('btn-edit-save').addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Update failed', 'error'); return; }
 
-    // Update local state and re-render row
     const t = ipod.tracks.find(t => t.id === trackId);
     if (t) {
-      if (payload.title)  t.title  = payload.title;
-      if (payload.artist) t.artist = payload.artist;
-      if (payload.album)  t.album  = payload.album;
-      if (payload.genre)  t.genre  = payload.genre;
-      if (payload.year)   t.year   = parseInt(payload.year);
+      if (payload.title)        t.title        = payload.title;
+      if (payload.artist)       t.artist       = payload.artist;
+      if (payload.album)        t.album        = payload.album;
+      if (payload.genre)        t.genre        = payload.genre;
+      if (payload.year)         t.year         = parseInt(payload.year);
       if (payload.track_number) t.track_number = parseInt(payload.track_number);
       const row = $(`itr-${trackId}`);
       if (row) row.replaceWith(buildTrackRow(t));
+      // close open lyrics viewer row if present
+      const lyrRow = $(`ilyr-${trackId}`);
+      if (lyrRow) lyrRow.remove();
     }
     editModal.style.display = 'none';
-    showToast('Track updated', 'success');
+    lyricsEl._loaded = false;
+    showToast('Track saved', 'success');
   } catch(e) {
     showToast('Network error: ' + e.message, 'error');
   } finally {
