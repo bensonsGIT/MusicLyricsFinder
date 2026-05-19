@@ -365,6 +365,22 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
   gap: 12px; margin-top: 14px;
 }
 
+/* inline lyrics viewer row */
+.lyrics-row td { background: var(--bg); padding: 0; border-top: none; }
+.lyrics-view-panel {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+}
+.lyrics-view-meta { font-size: .72rem; color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+.lyrics-view-source { background: rgba(124,58,237,.15); color: var(--accent-lt); border-radius: 4px; padding: 2px 7px; font-size: .7rem; }
+.lyrics-view-text {
+  font-size: .82rem; line-height: 1.7; color: var(--text-dim);
+  white-space: pre-wrap; max-height: 300px; overflow-y: auto;
+}
+.lyrics-view-text::-webkit-scrollbar { width: 4px; }
+.lyrics-view-text::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.lyrics-view-empty { font-size: .82rem; color: var(--text-muted); font-style: italic; }
+
 /* sync log */
 .sync-log {
   font-size: .75rem; color: var(--text-muted);
@@ -543,6 +559,7 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
               <th>Album</th>
               <th>Dur</th>
               <th style="text-align:right">Actions</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="ipod-tbody"></tbody>
@@ -1003,7 +1020,7 @@ $('ipod-search').addEventListener('input', () => {
 function ipodRenderTracks(tracks) {
   const tbody = $('ipod-tbody');
   if (!tracks.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:40px">No tracks found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:40px">No tracks found</td></tr>`;
     return;
   }
   tbody.innerHTML = '';
@@ -1024,8 +1041,60 @@ function buildTrackRow(t) {
       <button class="btn-ghost btn-sm" onclick="openEditModal(${t.id})">✎</button>
       <button class="btn-ghost btn-sm" style="color:var(--error)" onclick="ipodRemove(${t.id}, this)">✕</button>
     </td>
+    <td style="width:32px;padding-right:8px;text-align:center">
+      <button class="btn-ghost btn-sm" title="View lyrics" onclick="toggleLyricsRow(${t.id}, this)" style="font-size:.9rem">♪</button>
+    </td>
   `;
   return tr;
+}
+
+async function toggleLyricsRow(trackId, btn) {
+  const trackRow = $(`itr-${trackId}`);
+  const existingRow = $(`ilyr-${trackId}`);
+
+  // Toggle off if already open
+  if (existingRow) {
+    existingRow.remove();
+    btn.style.color = '';
+    return;
+  }
+
+  btn.style.color = 'var(--accent-lt)';
+  btn.disabled = true;
+
+  const lyricsRow = document.createElement('tr');
+  lyricsRow.id = `ilyr-${trackId}`;
+  lyricsRow.className = 'lyrics-row';
+  lyricsRow.innerHTML = `<td colspan="7"><div class="lyrics-view-panel"><span style="font-size:.78rem;color:var(--text-muted)">Loading…</span></div></td>`;
+  trackRow.insertAdjacentElement('afterend', lyricsRow);
+
+  try {
+    const res  = await fetch('/api/ipod/track-lyrics', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({mount: ipod.mount, track_id: trackId}),
+    });
+    const data = await res.json();
+    const panel = lyricsRow.querySelector('.lyrics-view-panel');
+    if (!res.ok) {
+      panel.innerHTML = `<span class="lyrics-view-empty">Error: ${esc(data.error)}</span>`;
+    } else if (data.lyrics) {
+      panel.innerHTML = `
+        <div class="lyrics-view-meta">
+          <span class="lyrics-view-source">♪ embedded lyrics</span>
+          <button class="btn-ghost btn-sm" style="font-size:.7rem;margin-left:auto" onclick="openEditModal(${trackId});document.getElementById('ilyr-${trackId}').remove();this.closest('button').style.color=''">✎ Edit</button>
+        </div>
+        <div class="lyrics-view-text">${esc(data.lyrics)}</div>`;
+    } else {
+      panel.innerHTML = `<span class="lyrics-view-empty">No lyrics embedded in this file.</span>
+        <button class="btn-ghost btn-sm" style="font-size:.72rem;margin-left:8px" onclick="openEditModal(${trackId})">+ Add lyrics</button>`;
+    }
+  } catch(e) {
+    lyricsRow.querySelector('.lyrics-view-panel').innerHTML =
+      `<span class="lyrics-view-empty">Network error: ${esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function fmtDur(ms) {
