@@ -157,6 +157,9 @@ def ipod_tracks():
         return jsonify({"error": str(e)}), 500
 
 
+_SYNC_WORKERS = 20
+
+
 @app.route("/api/ipod/lyrics-status", methods=["POST"])
 def ipod_lyrics_status():
     """Diagnostic: report how many tracks have lyrics in the DB vs audio files."""
