@@ -363,13 +363,24 @@ class iTunesDB:
         struct.pack_into("<I", hdr, 88, t.bpm)
         struct.pack_into("<Q", hdr, 104, t.dbid)
 
+        # Offset 0xC4 (196): feature flags — bit 2 = has_lyrics.
+        # The iPod Classic firmware checks this before looking for MHOD type 52.
+        if t.lyrics:
+            struct.pack_into("<I", hdr, 196, 4)  # bit 2 set
+
         return bytes(hdr) + mhod_data
 
     def _build_mhod_string(self, mtype: int, value: str) -> bytes:
-        encoded = value.encode("utf-16-le")
+        # Lyrics (type 52) are stored as UTF-8; all other strings use UTF-16-LE
+        if mtype == MHOD_LYRICS:
+            encoded = value.encode("utf-8")
+            enc_flag = 1
+        else:
+            encoded = value.encode("utf-16-le")
+            enc_flag = 0
         # Data section: encoding(4) + length(4) + pad(4) + pad(4) + string
         section = bytearray(16 + len(encoded))
-        struct.pack_into("<I", section, 0, 0)             # UTF-16 LE
+        struct.pack_into("<I", section, 0, enc_flag)
         struct.pack_into("<I", section, 4, len(encoded))
         section[16:] = encoded
 
