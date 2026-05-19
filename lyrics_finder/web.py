@@ -157,9 +157,15 @@ def ipod_tracks():
         return jsonify({"error": str(e)}), 500
 
 
+_SYNC_WORKERS = 20
+
+
 @app.route("/api/ipod/sync-lyrics")
 def ipod_sync_lyrics():
     import json as _json
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from queue import Queue, Empty
+
     mount_path = request.args.get("mount", "").strip()
     musixmatch_key = request.args.get("musixmatch_key", "").strip()
 
@@ -175,30 +181,34 @@ def ipod_sync_lyrics():
             mgr = IpodManager(mount)
             tracks = mgr.list_tracks()
             finder = LyricsFinder(musixmatch_key=musixmatch_key)
-            found = total = len(tracks)
+            total = len(tracks)
             found = 0
+            q: Queue = Queue()
 
-            for i, track in enumerate(tracks):
+            def _process(indexed_track):
+                i, track = indexed_track
                 local = track.local_path(mount.root)
                 key = track.title or local.name
                 if not _accessible(local):
-                    yield f"data: {_json.dumps({'i': i+1, 'total': total, 'track': key, 'status': 'missing'})}\n\n"
-                    continue
+                    return {'i': i, 'total': total, 'track': key, 'status': 'missing'}
                 lyrics, source = finder.find(track.title, track.artist, track.album)
                 if lyrics:
                     try:
                         write_lyrics(local, lyrics, track.title, track.artist, track.album)
-                        found += 1
-                        yield f"data: {_json.dumps({'i': i+1, 'total': total, 'track': key, 'status': 'found', 'source': source})}\n\n"
+                        return {'i': i, 'total': total, 'track': key, 'status': 'found', 'source': source}
                     except Exception as exc:
-                        yield f"data: {_json.dumps({'i': i+1, 'total': total, 'track': key, 'status': 'error', 'error': str(exc)})}\n\n"
-                else:
-                    yield f"data: {_json.dumps({'i': i+1, 'total': total, 'track': key, 'status': 'not_found'})}\n\n"
+                        return {'i': i, 'total': total, 'track': key, 'status': 'error', 'error': str(exc)}
+                return {'i': i, 'total': total, 'track': key, 'status': 'not_found'}
+
+            with ThreadPoolExecutor(max_workers=_SYNC_WORKERS) as ex:
+                for event in ex.map(_process, enumerate(tracks, 1)):
+                    if event['status'] == 'found':
+                        found += 1
+                    yield f"data: {_json.dumps(event)}\n\n"
 
             yield f"data: {_json.dumps({'done': True, 'found': found, 'total': total})}\n\n"
         except Exception as e:
-            import json as _j
-            yield f"data: {_j.dumps({'error': str(e)})}\n\n"
+            yield f"data: {_json.dumps({'error': str(e)})}\n\n"
 
     return Response(stream_with_context(generate()),
                     content_type="text/event-stream",

@@ -85,7 +85,7 @@ class MusixmatchAdapter:
 
 
 class LyricsFinder:
-    """Try free sources in order; optionally append Musixmatch if a key is given."""
+    """Query all sources in parallel; return the first hit."""
 
     def __init__(self, musixmatch_key: str = ""):
         self._sources: list = [LrcLibSource(), LyricsOvhSource()]
@@ -93,12 +93,23 @@ class LyricsFinder:
             self._sources.append(MusixmatchAdapter(musixmatch_key))
 
     def find(self, title: str, artist: str = "", album: str = "") -> tuple[str | None, str | None]:
-        """Return (lyrics, source_name) or (None, None)."""
-        for source in self._sources:
+        """Return (lyrics, source_name) or (None, None).
+
+        All sources are queried concurrently; the first non-empty result wins.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _query(source):
             try:
                 lyrics = source.find_lyrics(title, artist, album)
-                if lyrics:
-                    return lyrics, source.NAME
+                return (lyrics, source.NAME) if lyrics else (None, None)
             except LyricsError:
-                continue
+                return (None, None)
+
+        with ThreadPoolExecutor(max_workers=len(self._sources)) as ex:
+            futures = {ex.submit(_query, src): src for src in self._sources}
+            for fut in as_completed(futures):
+                lyrics, name = fut.result()
+                if lyrics:
+                    return lyrics, name
         return None, None
