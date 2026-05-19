@@ -108,35 +108,37 @@ class IpodManager:
 
         return True
 
-    def sync_lyrics(self, finder) -> dict[str, str]:
+    def sync_lyrics(self, finder, *, workers: int = 20) -> dict[str, str]:
         """
         Find and embed lyrics for every track on the iPod.
 
         *finder* is a ``LyricsFinder`` instance from lyrics_finder.sources.
+        Tracks are processed concurrently using *workers* threads.
         Returns a dict mapping track title → source name (or 'not found').
         """
+        from concurrent.futures import ThreadPoolExecutor
         from lyrics_finder.metadata import write_lyrics
 
-        # Ensure iPod_Control and its Music subfolder are accessible on macOS.
-        # HFS+ marks them hidden; chflags nohidden lets Python stat() them.
         _unhide_ipod_dirs(self.mount.root)
 
-        results: dict[str, str] = {}
-        for track in self.list_tracks():
+        def _process(track):
             local = track.local_path(self.mount.root)
             key = track.title or local.name
             if not _accessible(local):
-                results[key] = f"file not found: {local}"
-                continue
+                return key, f"file not found: {local}"
             lyrics, source = finder.find(track.title, track.artist, track.album)
             if lyrics:
                 try:
                     write_lyrics(local, lyrics, track.title, track.artist, track.album)
-                    results[key] = source
+                    return key, source
                 except Exception as exc:
-                    results[key] = f"error: {exc}"
-            else:
-                results[key] = "not found"
+                    return key, f"error: {exc}"
+            return key, "not found"
+
+        results: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for key, status in ex.map(_process, self.list_tracks()):
+                results[key] = status
         return results
 
     def update_metadata(
