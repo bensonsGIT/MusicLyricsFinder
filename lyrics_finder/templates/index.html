@@ -552,9 +552,9 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
   </div>
 
   <!-- Edit modal -->
-  <div id="edit-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:none;align-items:center;justify-content:center">
-    <div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);width:min(520px,95vw);padding:24px;box-shadow:var(--shadow)">
-      <div style="font-weight:700;font-size:1rem;margin-bottom:18px">Edit Metadata</div>
+  <div id="edit-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:none;align-items:center;justify-content:center;overflow-y:auto;padding:20px 0">
+    <div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);width:min(560px,95vw);padding:24px;box-shadow:var(--shadow)">
+      <div style="font-weight:700;font-size:1rem;margin-bottom:18px">Edit Track</div>
       <input type="hidden" id="edit-track-id">
       <div class="edit-grid">
         <div><label>Title</label><input type="text" class="edit-field" data-field="title" id="ef-title"></div>
@@ -566,9 +566,22 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
         <div><label>Track #</label><input type="text" class="edit-field" data-field="track_number" id="ef-tracknum"></div>
         <div><label>Composer</label><input type="text" class="edit-field" data-field="composer" id="ef-composer"></div>
       </div>
+      <!-- Lyrics section -->
+      <div style="margin-top:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <label style="margin:0">Lyrics</label>
+          <button class="btn-ghost btn-sm" id="btn-load-lyrics" style="font-size:.72rem">⟳ Load from file</button>
+        </div>
+        <div id="lyrics-loading" style="display:none;font-size:.78rem;color:var(--text-muted);padding:8px 0">Loading…</div>
+        <textarea id="ef-lyrics" rows="8" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:10px;font-size:.8rem;font-family:inherit;resize:vertical;line-height:1.5" placeholder="No lyrics embedded — click 'Load from file' to fetch, or type/paste lyrics here"></textarea>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn-ghost btn-sm" id="btn-save-lyrics" style="font-size:.72rem">💾 Save lyrics to file</button>
+          <button class="btn-ghost btn-sm" id="btn-clear-lyrics" style="font-size:.72rem;color:var(--text-muted)">✕ Clear lyrics</button>
+        </div>
+      </div>
       <div class="edit-actions" style="margin-top:16px">
         <button class="btn-ghost btn-sm" id="btn-edit-cancel">Cancel</button>
-        <button class="btn-primary btn-sm" id="btn-edit-save">Save</button>
+        <button class="btn-primary btn-sm" id="btn-edit-save">Save Metadata</button>
       </div>
     </div>
   </div>
@@ -1097,20 +1110,68 @@ const editModal = $('edit-modal');
 function openEditModal(trackId) {
   const t = ipod.tracks.find(t => t.id === trackId);
   if (!t) return;
-  $('edit-track-id').value  = trackId;
-  $('ef-title').value       = t.title || '';
-  $('ef-artist').value      = t.artist || '';
-  $('ef-album').value       = t.album || '';
+  $('edit-track-id').value   = trackId;
+  $('ef-title').value        = t.title || '';
+  $('ef-artist').value       = t.artist || '';
+  $('ef-album').value        = t.album || '';
   $('ef-album-artist').value = '';
-  $('ef-genre').value       = t.genre || '';
-  $('ef-year').value        = t.year || '';
-  $('ef-tracknum').value    = t.track_number || '';
-  $('ef-composer').value    = '';
-  editModal.style.display   = 'flex';
+  $('ef-genre').value        = t.genre || '';
+  $('ef-year').value         = t.year || '';
+  $('ef-tracknum').value     = t.track_number || '';
+  $('ef-composer').value     = '';
+  $('ef-lyrics').value       = '';
+  $('lyrics-loading').style.display = 'none';
+  editModal.style.display    = 'flex';
 }
 
 $('btn-edit-cancel').addEventListener('click', () => { editModal.style.display = 'none'; });
 editModal.addEventListener('click', e => { if (e.target === editModal) editModal.style.display = 'none'; });
+
+async function loadTrackLyrics() {
+  const trackId = parseInt($('edit-track-id').value);
+  $('lyrics-loading').style.display = 'block';
+  $('ef-lyrics').value = '';
+  try {
+    const res  = await fetch('/api/ipod/track-lyrics', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({mount: ipod.mount, track_id: trackId}),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Failed to load lyrics', 'error'); return; }
+    $('ef-lyrics').value = data.lyrics || '';
+    if (!data.has_lyrics) showToast('No lyrics embedded in this file', '');
+  } catch(e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    $('lyrics-loading').style.display = 'none';
+  }
+}
+
+async function saveTrackLyrics() {
+  const trackId = parseInt($('edit-track-id').value);
+  const lyrics  = $('ef-lyrics').value;
+  const btn = $('btn-save-lyrics');
+  btn.disabled = true;
+  try {
+    const res  = await fetch('/api/ipod/track-lyrics', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({mount: ipod.mount, track_id: trackId, lyrics}),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Failed to save lyrics', 'error'); return; }
+    showToast(lyrics ? 'Lyrics saved to file' : 'Lyrics cleared from file', 'success');
+  } catch(e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('btn-load-lyrics').addEventListener('click', loadTrackLyrics);
+$('btn-save-lyrics').addEventListener('click', saveTrackLyrics);
+$('btn-clear-lyrics').addEventListener('click', () => { $('ef-lyrics').value = ''; });
 
 $('btn-edit-save').addEventListener('click', async () => {
   const trackId = parseInt($('edit-track-id').value);
