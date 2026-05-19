@@ -356,9 +356,7 @@ def _accessible(path: Path) -> bool:
     try:
         path.stat()
         return True
-    except FileNotFoundError:
-        return False
-    except OSError:
+    except (FileNotFoundError, OSError, ValueError):
         return False
 
 
