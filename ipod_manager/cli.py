@@ -106,10 +106,16 @@ def cmd_sync_lyrics(args: argparse.Namespace) -> int:
     finder = LyricsFinder(musixmatch_key=getattr(args, "musixmatch_key", ""))
     print("Syncing lyrics …")
     results = mgr.sync_lyrics(finder)
-    found = sum(1 for v in results.values() if v not in ("not found",) and not v.startswith("error"))
+    found = 0
     for title, source in results.items():
-        status = f"[ok] via {source}" if source not in ("not found",) and not source.startswith("error") else f"[--] {source}"
-        print(f"  {status:<30} {title}")
+        if source not in ("not found",) and not source.startswith("error") and not source.startswith("file not found"):
+            found += 1
+            status = f"[ok] via {source}"
+        elif source.startswith("file not found"):
+            status = f"[!!] {source}"
+        else:
+            status = f"[--] {source}"
+        print(f"  {status:<55} {title}")
     print(f"\n{found}/{len(results)} track(s) updated with lyrics.")
     return 0
 

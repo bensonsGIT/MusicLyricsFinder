@@ -78,8 +78,15 @@ class Track:
     file_type: str = ""    # "MP3 ", "M4A ", …
 
     def local_path(self, mount: Path) -> Path:
-        """Resolve the iPod colon-path to an absolute filesystem path."""
-        parts = [p for p in self.ipod_path.split(":") if p]
+        """Resolve the iPod colon-path to an absolute filesystem path.
+
+        iTunesDB stores paths with ':' (HFS), '/' (POSIX), or '\\'
+        separators depending on the iTunes version that wrote the DB.
+        """
+        raw = self.ipod_path
+        # Normalise any separator to '/'
+        raw = raw.replace("\\", "/").replace(":", "/")
+        parts = [p for p in raw.split("/") if p]
         return mount.joinpath(*parts)
 
     def colon_path(self) -> str:
