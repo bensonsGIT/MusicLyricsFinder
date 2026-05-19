@@ -118,11 +118,17 @@ class iTunesDB:
         pos = hdr_size
         while pos + 8 < len(data):
             magic = data[pos : pos + 4]
+            rec_hdr = struct.unpack_from("<I", data, pos + 4)[0]
+            rec_total = struct.unpack_from("<I", data, pos + 8)[0]
             if magic == MHLT:
                 self._parse_mhlt(data, pos)
                 return
-            rec_hdr = struct.unpack_from("<I", data, pos + 4)[0]
-            rec_total = struct.unpack_from("<I", data, pos + 8)[0]
+            # Newer iPod databases wrap mhlt inside mhsd section records
+            if magic == b"mhsd" and rec_hdr > 0:
+                inner = pos + rec_hdr
+                if inner + 4 <= len(data) and data[inner : inner + 4] == MHLT:
+                    self._parse_mhlt(data, inner)
+                    return
             advance = rec_total or rec_hdr
             if advance == 0:
                 break
