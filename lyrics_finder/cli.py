@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .metadata import read_metadata, write_lyrics
+from .metadata import clear_lyrics, read_metadata, write_lyrics
 from .sources import LyricsFinder
 
 SUPPORTED_EXTENSIONS = {".mp3", ".m4a", ".aac"}
@@ -130,6 +130,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Prompt before overwriting existing lyrics",
     )
     parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="Remove embedded lyrics from the given files instead of searching",
+    )
+    parser.add_argument(
         "--musixmatch-key",
         default="",
         metavar="KEY",
@@ -148,6 +153,31 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Found {len(files)} file(s) to process.")
+
+    if args.clear:
+        cleared = 0
+        skipped = 0
+        for path in files:
+            try:
+                if args.dry_run:
+                    meta = read_metadata(path)
+                    had = bool(meta["lyrics"])
+                    if had:
+                        print(f"[dry-run] Would clear lyrics: {path}")
+                else:
+                    had = clear_lyrics(path)
+                if had:
+                    if not args.dry_run:
+                        print(f"[ok] Cleared lyrics: {path}")
+                    cleared += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                print(f"[error] {path}: {e}")
+                skipped += 1
+        print(f"\nDone. {cleared} cleared, {skipped} had no lyrics or failed.")
+        return 0
+
     finder = LyricsFinder(musixmatch_key=args.musixmatch_key)
     ok = 0
     skipped = 0

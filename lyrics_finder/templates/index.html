@@ -134,6 +134,11 @@ button {
 }
 .btn-ghost:hover { border-color: var(--border2); color: var(--text); background: var(--card); }
 .btn-sm { padding: 6px 12px; font-size: .78rem; border-radius: 6px; }
+.btn-danger {
+  background: rgba(239,68,68,.1); color: var(--error);
+  border: 1px solid rgba(239,68,68,.3);
+}
+.btn-danger:hover { background: rgba(239,68,68,.2); border-color: rgba(239,68,68,.5); }
 
 /* ── Toggle ── */
 .toggle-row {
@@ -379,7 +384,8 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
           <div class="stat-pill"><span class="dot dot-done"></span><span id="stat-done">0 processed</span></div>
           <div class="stat-pill"><span class="dot dot-err"></span><span id="stat-err">0 errors</span></div>
           <div class="spacer"></div>
-          <button class="btn-ghost btn-sm" id="btn-clear">✕ Clear</button>
+          <button class="btn-ghost btn-sm" id="btn-clear">✕ Clear list</button>
+          <button class="btn-danger btn-sm" id="btn-clear-lyrics">🗑 Clear All Lyrics</button>
           <button class="btn-primary" id="btn-all">▶ Process All</button>
         </div>
         <div class="progress-wrap" id="progress-wrap">
@@ -569,6 +575,17 @@ function buildCard(file, idx) {
     btn.textContent = (status === 'idle' || status === 'has_lyrics') ? '▶ Find' : '↺ Retry';
     btn.addEventListener('click', () => processSingle(file, idx));
     actions.appendChild(btn);
+
+    // Clear button — only when the file currently has lyrics
+    const hasLyricsNow = file.has_lyrics || (r && r.status === 'success' && !r.dry_run);
+    if (hasLyricsNow) {
+      const cbtn = document.createElement('button');
+      cbtn.className = 'btn-danger btn-sm';
+      cbtn.textContent = '🗑';
+      cbtn.title = 'Remove embedded lyrics from this file';
+      cbtn.addEventListener('click', () => clearSingle(file, idx));
+      actions.appendChild(cbtn);
+    }
   }
 
   // Lyrics panel
@@ -676,6 +693,85 @@ function setCardProcessing(idx, file) {
 function refreshCard(file, idx) {
   const old = $(`card-${idx}`);
   if (old) old.replaceWith(buildCard(file, idx));
+}
+
+// ── Clear lyrics ───────────────────────────────────────────────────────────
+async function clearSingle(file, idx) {
+  try {
+    const res = await fetch('/api/clear', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: file.path}),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Clear failed', 'error'); return; }
+
+    file.has_lyrics = false;
+    delete state.results[file.path];
+    refreshCard(file, idx);
+    updateStats();
+    showToast(data.had_lyrics ? `Cleared lyrics from ${file.name}` : 'No lyrics to clear');
+  } catch(e) {
+    showToast('Network error: ' + e.message, 'error');
+  }
+}
+
+$('btn-clear-lyrics').addEventListener('click', clearAllLyrics);
+
+async function clearAllLyrics() {
+  if (state.processing) return;
+
+  const withLyrics = state.files.filter(f => {
+    const r = state.results[f.path];
+    return f.has_lyrics || (r && r.status === 'success' && !r.dry_run);
+  });
+
+  if (!withLyrics.length) { showToast('No files have embedded lyrics', 'error'); return; }
+  if (!confirm(`Remove embedded lyrics from ${withLyrics.length} file${withLyrics.length !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+
+  state.processing = true;
+  $('btn-clear-lyrics').disabled = true;
+  $('btn-all').disabled = true;
+
+  const pw = $('progress-wrap');
+  const pf = $('progress-fill');
+  const pl = $('progress-label');
+  pw.classList.add('visible');
+
+  let cleared = 0, errors = 0;
+  for (let i = 0; i < withLyrics.length; i++) {
+    const file = withLyrics[i];
+    const idx  = state.files.indexOf(file);
+    pf.style.width = `${(i / withLyrics.length) * 100}%`;
+    pl.textContent = `Clearing ${i + 1} / ${withLyrics.length} — ${file.name}`;
+
+    try {
+      const res = await fetch('/api/clear', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: file.path}),
+      });
+      if (res.ok) {
+        file.has_lyrics = false;
+        delete state.results[file.path];
+        cleared++;
+      } else {
+        errors++;
+      }
+    } catch(e) {
+      errors++;
+    }
+    refreshCard(file, idx);
+  }
+
+  pf.style.width = '100%';
+  pl.textContent = `Cleared ${cleared} file${cleared !== 1 ? 's' : ''}${errors ? `, ${errors} error${errors !== 1 ? 's' : ''}` : ''}`;
+  updateStats();
+  showToast(`Cleared lyrics from ${cleared} file${cleared !== 1 ? 's' : ''}`, 'success');
+
+  state.processing = false;
+  $('btn-clear-lyrics').disabled = false;
+  $('btn-all').disabled = false;
 }
 
 // ── Process all ────────────────────────────────────────────────────────────

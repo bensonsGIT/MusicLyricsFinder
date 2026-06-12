@@ -2,7 +2,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from .metadata import read_metadata, write_lyrics
+from .metadata import clear_lyrics, read_metadata, write_lyrics
 from .sources import LyricsFinder
 
 SUPPORTED_EXTENSIONS = {".mp3", ".m4a", ".aac"}
@@ -48,6 +48,23 @@ def scan():
             )
 
     return jsonify({"files": files, "count": len(files)})
+
+
+@app.route("/api/clear", methods=["POST"])
+def clear():
+    data = request.get_json(force=True) or {}
+    file_path = data.get("path", "").strip()
+
+    path = Path(file_path)
+    if not path.is_file():
+        return jsonify({"error": f"File not found: {file_path}"}), 400
+
+    try:
+        had = clear_lyrics(path)
+    except Exception as e:
+        return jsonify({"error": f"Failed to clear lyrics: {e}"}), 500
+
+    return jsonify({"status": "cleared" if had else "no_lyrics", "had_lyrics": had})
 
 
 @app.route("/api/process", methods=["POST"])

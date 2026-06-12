@@ -40,6 +40,28 @@ def read_metadata(path: Path) -> dict:
     return info
 
 
+def clear_lyrics(path: Path) -> bool:
+    """Remove embedded lyrics from a file. Returns True if lyrics were present."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".mp3":
+        _, tags = _open_mp3(path)
+        had = bool(tags.getall("USLT"))
+        if had:
+            tags.delall("USLT")
+            tags.save(path)
+        return had
+    elif suffix in (".m4a", ".aac"):
+        audio = MP4(path)
+        had = bool(audio.tags and audio.tags.get("\xa9lyr"))
+        if had:
+            del audio.tags["\xa9lyr"]
+            audio.save()
+        return had
+    else:
+        raise ValueError(f"Unsupported file format: {suffix!r} (supported: .mp3, .m4a, .aac)")
+
+
 def write_lyrics(path: Path, lyrics: str, title: str = "", artist: str = "", album: str = "") -> None:
     suffix = path.suffix.lower()
 

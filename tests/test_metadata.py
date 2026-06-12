@@ -8,7 +8,7 @@ from mutagen.id3 import ID3, TIT2, TPE1, TALB
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
 
-from lyrics_finder.metadata import read_metadata, write_lyrics
+from lyrics_finder.metadata import clear_lyrics, read_metadata, write_lyrics
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +163,44 @@ class TestM4AMetadata:
         write_lyrics(p, "AAC lyrics")
         meta = read_metadata(p)
         assert "AAC lyrics" in meta["lyrics"]
+
+
+# ---------------------------------------------------------------------------
+# Clear lyrics
+# ---------------------------------------------------------------------------
+
+class TestClearLyrics:
+    def test_clear_mp3(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A", lyrics="Some lyrics")
+        assert clear_lyrics(p) is True
+        meta = read_metadata(p)
+        assert meta["lyrics"] == ""
+        assert meta["title"] == "T"  # other tags untouched
+
+    def test_clear_mp3_without_lyrics(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A")
+        assert clear_lyrics(p) is False
+
+    def test_clear_m4a(self, tmp_path):
+        p = tmp_path / "song.m4a"
+        _make_m4a(p, title="T", artist="A", lyrics="Some lyrics")
+        assert clear_lyrics(p) is True
+        meta = read_metadata(p)
+        assert meta["lyrics"] == ""
+        assert meta["title"] == "T"
+
+    def test_clear_m4a_without_lyrics(self, tmp_path):
+        p = tmp_path / "song.m4a"
+        _make_m4a(p, title="T", artist="A")
+        assert clear_lyrics(p) is False
+
+    def test_clear_unsupported_raises(self, tmp_path):
+        p = tmp_path / "song.flac"
+        p.write_bytes(b"\x00" * 100)
+        with pytest.raises(ValueError, match="Unsupported"):
+            clear_lyrics(p)
 
 
 # ---------------------------------------------------------------------------
