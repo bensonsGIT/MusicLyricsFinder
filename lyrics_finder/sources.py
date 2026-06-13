@@ -1,5 +1,19 @@
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import requests
+
+# Module-level cache: (title_lower, artist_lower) → (lyrics, source_name)
+# Shared across all LyricsFinder instances in a process, so "Process All"
+# never re-fetches the same track twice.
+_cache: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+_cache_lock = threading.Lock()
+
+
+def clear_cache() -> None:
+    with _cache_lock:
+        _cache.clear()
 
 
 class LyricsError(Exception):
@@ -11,17 +25,20 @@ class LrcLibSource:
 
     NAME = "lrclib.net"
     _BASE = "https://lrclib.net/api"
-    _HEADERS = {"Lrclib-Client": "MusicLyricsFinder/1.0"}
+
+    def __init__(self) -> None:
+        self._session = requests.Session()
+        self._session.headers["Lrclib-Client"] = "MusicLyricsFinder/1.0"
 
     def find_lyrics(self, title: str, artist: str = "", album: str = "") -> str | None:
         try:
-            # Exact lookup first
+            # Exact lookup
             params: dict = {"track_name": title}
             if artist:
                 params["artist_name"] = artist
             if album:
                 params["album_name"] = album
-            r = requests.get(f"{self._BASE}/get", params=params, headers=self._HEADERS, timeout=10)
+            r = self._session.get(f"{self._BASE}/get", params=params, timeout=8)
             if r.status_code == 200:
                 lyrics = (r.json().get("plainLyrics") or "").strip()
                 if lyrics:
@@ -29,7 +46,7 @@ class LrcLibSource:
 
             # Fuzzy search fallback
             q = f"{artist} {title}".strip() if artist else title
-            r = requests.get(f"{self._BASE}/search", params={"q": q}, headers=self._HEADERS, timeout=10)
+            r = self._session.get(f"{self._BASE}/search", params={"q": q}, timeout=8)
             r.raise_for_status()
             for hit in r.json()[:5]:
                 lyrics = (hit.get("plainLyrics") or "").strip()
@@ -45,13 +62,16 @@ class LyricsOvhSource:
 
     NAME = "lyrics.ovh"
 
+    def __init__(self) -> None:
+        self._session = requests.Session()
+
     def find_lyrics(self, title: str, artist: str = "", album: str = "") -> str | None:
         if not artist:
-            return None  # API requires both fields
+            return None
         a = urllib.parse.quote(artist, safe="")
         t = urllib.parse.quote(title, safe="")
         try:
-            r = requests.get(f"https://api.lyrics.ovh/v1/{a}/{t}", timeout=10)
+            r = self._session.get(f"https://api.lyrics.ovh/v1/{a}/{t}", timeout=8)
             if r.status_code == 404:
                 return None
             r.raise_for_status()
@@ -68,7 +88,7 @@ class MusixmatchAdapter:
 
     NAME = "musixmatch"
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str) -> None:
         from .musixmatch import MusixmatchClient, MusixmatchError
         self._client = MusixmatchClient(api_key)
         self._MusixmatchError = MusixmatchError
@@ -85,31 +105,50 @@ class MusixmatchAdapter:
 
 
 class LyricsFinder:
-    """Query all sources in parallel; return the first hit."""
+    """Query all sources in parallel; return the first successful result."""
 
-    def __init__(self, musixmatch_key: str = ""):
+    def __init__(self, musixmatch_key: str = "") -> None:
         self._sources: list = [LrcLibSource(), LyricsOvhSource()]
         if musixmatch_key:
             self._sources.append(MusixmatchAdapter(musixmatch_key))
 
     def find(self, title: str, artist: str = "", album: str = "") -> tuple[str | None, str | None]:
-        """Return (lyrics, source_name) or (None, None).
+        """Return (lyrics, source_name) or (None, None). Results are cached."""
+        key = (title.lower().strip(), artist.lower().strip())
+        with _cache_lock:
+            if key in _cache:
+                return _cache[key]
 
-        All sources are queried concurrently; the first non-empty result wins.
-        """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        result = self._find_parallel(title, artist, album)
 
-        def _query(source):
-            try:
-                lyrics = source.find_lyrics(title, artist, album)
-                return (lyrics, source.NAME) if lyrics else (None, None)
-            except LyricsError:
-                return (None, None)
+        with _cache_lock:
+            _cache[key] = result
+        return result
 
-        with ThreadPoolExecutor(max_workers=len(self._sources)) as ex:
-            futures = {ex.submit(_query, src): src for src in self._sources}
-            for fut in as_completed(futures):
-                lyrics, name = fut.result()
-                if lyrics:
-                    return lyrics, name
-        return None, None
+    def _find_parallel(self, title: str, artist: str, album: str) -> tuple[str | None, str | None]:
+        if not self._sources:
+            return None, None
+
+        executor = ThreadPoolExecutor(max_workers=len(self._sources))
+        futures = {
+            executor.submit(src.find_lyrics, title, artist, album): src
+            for src in self._sources
+        }
+
+        result: tuple[str | None, str | None] = (None, None)
+        try:
+            for future in as_completed(futures, timeout=12):
+                src = futures[future]
+                try:
+                    lyrics = future.result()
+                    if lyrics:
+                        result = (lyrics, src.NAME)
+                        break
+                except LyricsError:
+                    continue
+        except TimeoutError:
+            pass
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        return result

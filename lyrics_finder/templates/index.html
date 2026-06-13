@@ -1006,18 +1006,37 @@ async function processAll() {
   const pl = $('progress-label');
   pw.classList.add('visible');
 
-  for (let i = 0; i < toProcess.length; i++) {
-    const file = toProcess[i];
-    const idx  = state.files.indexOf(file);
-    pf.style.width = `${(i / toProcess.length) * 100}%`;
-    pl.textContent = `${i + 1} / ${toProcess.length} — ${file.name}`;
-    await processSingle(file, idx);
-    await new Promise(r => setTimeout(r, 100));
-  }
+  const CONCURRENCY = 4;
+  const total = toProcess.length;
+  let completed = 0;
+  let queued = 0;
+
+  await new Promise(resolve => {
+    function updateProgress() {
+      pf.style.width = `${(completed / total) * 100}%`;
+      pl.textContent = `${completed} / ${total} — ${state.processedCount} found, ${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
+      if (completed === total) resolve();
+    }
+
+    function startNext() {
+      while (queued < total && (queued - completed) < CONCURRENCY) {
+        const file = toProcess[queued];
+        const idx  = state.files.indexOf(file);
+        queued++;
+        processSingle(file, idx).then(() => {
+          completed++;
+          updateProgress();
+          startNext();
+        });
+      }
+    }
+
+    startNext();
+  });
 
   pf.style.width = '100%';
-  pl.textContent = `Done — ${state.processedCount} processed, ${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
-  showToast(`Finished ${toProcess.length} file${toProcess.length !== 1 ? 's' : ''}`, 'success');
+  pl.textContent = `Done — ${state.processedCount} found, ${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
+  showToast(`Finished ${total} file${total !== 1 ? 's' : ''}`, 'success');
   state.processing = false;
   $('btn-all').disabled = false;
 }
