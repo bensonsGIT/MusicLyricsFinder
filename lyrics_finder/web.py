@@ -177,6 +177,68 @@ def artwork_apply():
     return jsonify({"status": "applied", "bytes": len(image), "mime": mime})
 
 
+@app.route("/api/artwork/auto", methods=["POST"])
+def artwork_auto():
+    """Search for and embed the best-matching cover in one step (no picker)."""
+    data = request.get_json(force=True) or {}
+    file_path = data.get("path", "").strip()
+    overwrite = bool(data.get("overwrite", False))
+    dry_run = bool(data.get("dry_run", False))
+    title_override = data.get("title", "").strip()
+    artist_override = data.get("artist", "").strip()
+    try:
+        size = int(data.get("size", 600) or 600)
+    except (TypeError, ValueError):
+        size = 600
+
+    path = Path(file_path)
+    if not path.is_file():
+        return jsonify({"error": f"File not found: {file_path}"}), 400
+
+    try:
+        meta = read_metadata(path)
+    except Exception as e:
+        return jsonify({"error": f"Cannot read metadata: {e}"}), 400
+
+    if meta.get("has_artwork") and not overwrite:
+        return jsonify({"status": "skipped", "reason": "already_has_artwork", "has_artwork": True})
+
+    title = title_override or meta["title"]
+    artist = artist_override or meta["artist"]
+    album = meta.get("album", "")
+    if not title and not album:
+        return jsonify({"status": "skipped", "reason": "no_title", "has_artwork": False})
+
+    finder = ArtworkFinder()
+    try:
+        result = finder.find(title, artist, album, size=size)
+    except ArtworkError as e:
+        return jsonify({"error": str(e)}), 502
+
+    if not result:
+        return jsonify({"status": "not_found", "reason": "no_results"})
+
+    if not dry_run:
+        try:
+            image, mime = finder.download(result.art_url)
+            write_artwork(path, image, mime)
+        except ArtworkError as e:
+            return jsonify({"error": str(e)}), 502
+        except Exception as e:
+            return jsonify({"error": f"Failed to embed artwork: {e}"}), 500
+
+    return jsonify(
+        {
+            "status": "success",
+            "matched_album": result.album or result.track,
+            "matched_artist": result.artist,
+            "thumb_url": result.thumb_url,
+            "art_url": result.art_url,
+            "dry_run": dry_run,
+        }
+    )
+
+
 @app.route("/api/artwork/clear", methods=["POST"])
 def artwork_clear():
     data = request.get_json(force=True) or {}

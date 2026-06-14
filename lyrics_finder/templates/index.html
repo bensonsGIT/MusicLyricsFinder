@@ -504,11 +504,13 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
         <div class="stats-bar">
           <div class="stat-pill"><span class="dot dot-total"></span><span id="stat-total">0 files</span></div>
           <div class="stat-pill"><span class="dot dot-lyrics"></span><span id="stat-lyrics">0 have lyrics</span></div>
+          <div class="stat-pill"><span class="dot" style="background:var(--info)"></span><span id="stat-art">0 have art</span></div>
           <div class="stat-pill"><span class="dot dot-done"></span><span id="stat-done">0 processed</span></div>
           <div class="stat-pill"><span class="dot dot-err"></span><span id="stat-err">0 errors</span></div>
           <div class="spacer"></div>
           <button class="btn-ghost btn-sm" id="btn-clear">✕ Clear list</button>
           <button class="btn-danger btn-sm" id="btn-clear-lyrics">🗑 Clear All Lyrics</button>
+          <button class="btn-ghost btn-sm" id="btn-art-all">🖼 Find Art (All)</button>
           <button class="btn-primary" id="btn-all">▶ Process All</button>
         </div>
         <div class="progress-wrap" id="progress-wrap">
@@ -775,8 +777,10 @@ function updateStats() {
     const r = state.results[f.path];
     return f.has_lyrics || (r && r.status === 'success');
   }).length;
+  const hasArt = state.files.filter(f => f.has_artwork).length;
   $('stat-total').textContent  = `${total} file${total !== 1 ? 's' : ''}`;
   $('stat-lyrics').textContent = `${hasLyrics} have lyrics`;
+  $('stat-art').textContent    = `${hasArt} have art`;
   $('stat-done').textContent   = `${state.processedCount} processed`;
   $('stat-err').textContent    = `${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
 }
@@ -816,8 +820,11 @@ function buildCard(file, idx) {
 
   const top = document.createElement('div');
   top.className = 'file-card-top';
+  const iconHtml = file.art_thumb
+    ? `<img class="file-thumb" src="${esc(file.art_thumb)}" alt="cover" onerror="this.outerHTML='<div class=\\'file-icon ${fext}\\'>${icon}</div>'">`
+    : `<div class="file-icon ${fext}">${icon}</div>`;
   top.innerHTML = `
-    <div class="file-icon ${fext}">${icon}</div>
+    ${iconHtml}
     <div class="file-meta">
       <div class="file-name">${esc(file.name)}</div>
       <div class="file-tags">${titleLine}${file.album ? ` <em>·</em> ${esc(file.album)}` : ''}</div>
@@ -1130,6 +1137,104 @@ async function processAll() {
   $('btn-all').disabled = false;
 }
 
+// ── Find Art (All) — artwork-only batch ─────────────────────────────────────
+$('btn-art-all').addEventListener('click', artworkAll);
+
+async function artworkAuto(file, idx) {
+  setCardSearchingArt(idx, file);
+  let status = 'error';
+  try {
+    const res = await fetch('/api/artwork/auto', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        path: file.path,
+        overwrite: isOverwrite(),
+        dry_run: isDryRun(),
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      status = data.status;
+      if (data.status === 'success' && !data.dry_run) {
+        file.has_artwork = true;
+        file.art_thumb = data.thumb_url;
+      }
+    } else {
+      state.errorCount++;
+    }
+  } catch (e) {
+    state.errorCount++;
+  }
+  refreshCard(file, idx);
+  updateStats();
+  return status;
+}
+
+function setCardSearchingArt(idx, file) {
+  const card = $(`card-${idx}`);
+  if (!card) return;
+  const actions = card.querySelector(`#actions-${idx}`);
+  if (actions) {
+    actions.innerHTML = '';
+    const b = document.createElement('span');
+    b.className = 'badge badge-spin';
+    b.innerHTML = '<span class="spinner"></span> Finding art…';
+    actions.appendChild(b);
+  }
+}
+
+async function artworkAll() {
+  if (state.processing) return;
+
+  const toProcess = state.files.filter(f => {
+    if (f.has_artwork && !isOverwrite()) return false;
+    return true;
+  });
+
+  if (!toProcess.length) { showToast('Every file already has artwork', 'error'); return; }
+
+  state.processing = true;
+  state.errorCount = 0;
+  $('btn-art-all').disabled = true;
+  $('btn-all').disabled = true;
+
+  const pw = $('progress-wrap');
+  const pf = $('progress-fill');
+  const pl = $('progress-label');
+  pw.classList.add('visible');
+
+  const CONCURRENCY = 4;
+  const total = toProcess.length;
+  let completed = 0, queued = 0, found = 0;
+
+  await new Promise(resolve => {
+    function tick(status) {
+      if (status === 'success') found++;
+      completed++;
+      pf.style.width = `${(completed / total) * 100}%`;
+      pl.textContent = `${completed} / ${total} — ${found} cover${found !== 1 ? 's' : ''} found`;
+      if (completed === total) resolve();
+    }
+    function startNext() {
+      while (queued < total && (queued - completed) < CONCURRENCY) {
+        const file = toProcess[queued];
+        const idx  = state.files.indexOf(file);
+        queued++;
+        artworkAuto(file, idx).then(status => { tick(status); startNext(); });
+      }
+    }
+    startNext();
+  });
+
+  pf.style.width = '100%';
+  pl.textContent = `Done — ${found} cover${found !== 1 ? 's' : ''} found out of ${total}`;
+  showToast(`Added artwork to ${found} file${found !== 1 ? 's' : ''}`, 'success');
+  state.processing = false;
+  $('btn-art-all').disabled = false;
+  $('btn-all').disabled = false;
+}
+
 // ── Clear ──────────────────────────────────────────────────────────────────
 $('btn-clear').addEventListener('click', () => {
   state.files = []; state.results = {};
@@ -1248,7 +1353,9 @@ async function applyArt(result, cardEl) {
 
     if (artState.file) {
       artState.file.has_artwork = true;
+      artState.file.art_thumb = result.thumb_url;
       refreshCard(artState.file, artState.idx);
+      updateStats();
     }
     showToast(`Artwork applied (${Math.round((data.bytes || 0) / 1024)} KB)`, 'success');
     setTimeout(() => { artModal.style.display = 'none'; }, 700);

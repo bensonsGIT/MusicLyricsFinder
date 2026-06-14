@@ -69,6 +69,71 @@ def test_apply_missing_file(client):
     assert r.status_code == 400
 
 
+def _auto_finder():
+    fake = MagicMock()
+    fake.find.return_value = ArtworkResult(
+        "Queen", "A Night at the Opera", "", "thumb_200", "art_600", "album")
+    fake.download.return_value = (_JPEG, "image/jpeg")
+    return fake
+
+
+def test_auto_embeds_best_match(client, tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    with patch("lyrics_finder.web.ArtworkFinder", return_value=_auto_finder()):
+        r = _post(client, "/api/artwork/auto", {"path": str(p)})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["status"] == "success"
+    assert data["thumb_url"] == "thumb_200"
+    from lyrics_finder.metadata import read_metadata
+    assert read_metadata(p)["has_artwork"] is True
+
+
+def test_auto_skips_when_art_present(client, tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    from lyrics_finder.metadata import write_artwork
+    write_artwork(p, _JPEG, "image/jpeg")
+    fake = _auto_finder()
+    with patch("lyrics_finder.web.ArtworkFinder", return_value=fake):
+        r = _post(client, "/api/artwork/auto", {"path": str(p)})
+    assert r.get_json()["status"] == "skipped"
+    fake.find.assert_not_called()
+
+
+def test_auto_overwrite_replaces(client, tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    from lyrics_finder.metadata import write_artwork
+    write_artwork(p, b"\x89PNG\r\n\x1a\n" + b"\x00" * 16, "image/png")
+    with patch("lyrics_finder.web.ArtworkFinder", return_value=_auto_finder()):
+        r = _post(client, "/api/artwork/auto", {"path": str(p), "overwrite": True})
+    assert r.get_json()["status"] == "success"
+
+
+def test_auto_not_found(client, tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    fake = MagicMock()
+    fake.find.return_value = None
+    with patch("lyrics_finder.web.ArtworkFinder", return_value=fake):
+        r = _post(client, "/api/artwork/auto", {"path": str(p)})
+    assert r.get_json()["status"] == "not_found"
+
+
+def test_auto_dry_run_does_not_write(client, tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    fake = _auto_finder()
+    with patch("lyrics_finder.web.ArtworkFinder", return_value=fake):
+        r = _post(client, "/api/artwork/auto", {"path": str(p), "dry_run": True})
+    assert r.get_json()["status"] == "success"
+    fake.download.assert_not_called()
+    from lyrics_finder.metadata import read_metadata
+    assert read_metadata(p)["has_artwork"] is False
+
+
 def test_clear_artwork(client, tmp_path):
     p = tmp_path / "song.mp3"
     _make_mp3(p)
