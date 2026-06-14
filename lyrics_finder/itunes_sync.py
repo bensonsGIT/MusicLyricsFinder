@@ -1,9 +1,15 @@
-"""Refresh tracks in Apple Music (macOS) after embedding tags with Lyrics Finder.
+"""Force-refresh tracks in Apple Music (macOS) after embedding tags.
 
-Uses osascript to invoke AppleScript — macOS only.  On any other platform
-every function returns immediately with a descriptive error string.
+Apple Music caches metadata and ignores the `refresh` AppleScript command
+unless it believes the file has changed.  The reliable sequence is:
+  1. Touch the file (update mtime) so the OS marks it as modified.
+  2. Run a single batch AppleScript that removes the stale library entry
+     and re-adds the file, which forces a full re-read of all embedded tags.
+
+macOS only — all functions return a safe no-op result on other platforms.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,106 +19,168 @@ def _macos() -> bool:
     return sys.platform == "darwin"
 
 
-def _run_script(script: str) -> tuple[str, str]:
-    """Run *script* via osascript and return (stdout, stderr)."""
+def _run_script(script: str, timeout: int = 120) -> tuple[str, str]:
     result = subprocess.run(
         ["osascript", "-e", script],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, timeout=timeout,
     )
     return result.stdout.strip(), result.stderr.strip()
 
 
-def refresh_paths(paths: list[Path]) -> dict:
-    """Tell Apple Music to refresh specific file paths.
+def _touch(paths: list[Path]) -> None:
+    """Update mtime on every path so Apple Music sees them as changed."""
+    for p in paths:
+        try:
+            os.utime(p, None)
+        except OSError:
+            pass
+
+
+def _build_batch_script(posix_paths: list[str]) -> str:
+    """Return an AppleScript that removes each track from the library and
+    re-adds the file, forcing a full metadata re-read."""
+    # Build an AppleScript list literal from the Python list
+    escaped = [p.replace('"', '\\"') for p in posix_paths]
+    as_list = "{" + ", ".join(f'"{p}"' for p in escaped) + "}"
+
+    return f"""
+tell application "Music"
+    set pathList to {as_list}
+    set refreshed to 0
+    set notFound to 0
+    set errors to 0
+
+    repeat with aPath in pathList
+        try
+            set theLoc to (POSIX file aPath) as alias
+
+            -- Remove existing entry (keeps the file on disk)
+            set oldTracks to (every file track of library playlist 1 whose location is theLoc)
+            repeat with t in oldTracks
+                delete t
+            end repeat
+
+            -- Re-add from disk: Music re-reads all embedded tags
+            add theLoc to library playlist 1
+            set refreshed to refreshed + 1
+        on error errMsg
+            -- File not in library or other error — just try adding it
+            try
+                set theLoc to (POSIX file aPath) as alias
+                add theLoc to library playlist 1
+                set notFound to notFound + 1
+            on error
+                set errors to errors + 1
+            end try
+        end try
+    end repeat
+
+    return (refreshed as string) & "," & (notFound as string) & "," & (errors as string)
+end tell
+"""
+
+
+def force_refresh_paths(paths: list[Path]) -> dict:
+    """Force Apple Music to re-read embedded tags for the given files.
+
+    Steps:
+      1. Touch each file's mtime so the OS marks it as changed.
+      2. Remove each track's library entry and re-add the file from disk.
 
     Returns a dict with keys:
-      refreshed  – number of tracks successfully refreshed
-      not_found  – number of paths not found in the library
-      errors     – list of error strings
-      available  – False when not running on macOS
+      available  – False when not macOS
+      refreshed  – tracks successfully removed + re-added
+      added      – files that weren't in the library but were added
+      errors     – count of files that failed entirely
+      error_msg  – error string if the whole operation failed
     """
     if not _macos():
-        return {"available": False, "refreshed": 0, "not_found": 0, "errors": []}
+        return {"available": False, "refreshed": 0, "added": 0, "errors": 0}
 
-    refreshed = not_found = 0
-    errors: list[str] = []
+    existing = [p for p in paths if p.exists()]
+    if not existing:
+        return {"available": True, "refreshed": 0, "added": 0, "errors": len(paths)}
 
-    for path in paths:
-        posix = str(path.expanduser().resolve())
-        # Ask Apple Music to locate the track by its on-disk path then refresh it.
-        script = f'''
-tell application "Music"
-    set theLoc to (POSIX file "{posix}") as alias
-    set theTracks to (every file track of library playlist 1 whose location is theLoc)
-    if length of theTracks > 0 then
-        refresh (item 1 of theTracks)
-        return "ok"
-    else
-        return "not found"
-    end if
-end tell
-'''
-        try:
-            out, err = _run_script(script)
-            if out == "ok":
-                refreshed += 1
-            else:
-                not_found += 1
-            if err:
-                errors.append(f"{path.name}: {err}")
-        except subprocess.TimeoutExpired:
-            errors.append(f"{path.name}: timed out")
-        except Exception as exc:
-            errors.append(f"{path.name}: {exc}")
+    # Step 1 — touch files
+    _touch(existing)
 
-    return {
+    # Step 2 — batch AppleScript
+    posix_paths = [str(p.expanduser().resolve()) for p in existing]
+    try:
+        out, err = _run_script(_build_batch_script(posix_paths))
+    except subprocess.TimeoutExpired:
+        return {"available": True, "refreshed": 0, "added": 0, "errors": len(existing),
+                "error_msg": "AppleScript timed out — library may be very large"}
+    except Exception as exc:
+        return {"available": True, "refreshed": 0, "added": 0, "errors": len(existing),
+                "error_msg": str(exc)}
+
+    # Parse "refreshed,added,errors" from the script return value
+    parts = out.split(",")
+    try:
+        refreshed = int(parts[0]) if len(parts) > 0 else 0
+        added     = int(parts[1]) if len(parts) > 1 else 0
+        errs      = int(parts[2]) if len(parts) > 2 else 0
+    except ValueError:
+        refreshed = added = errs = 0
+
+    result: dict = {
         "available": True,
         "refreshed": refreshed,
-        "not_found": not_found,
-        "errors": errors,
+        "added": added,
+        "errors": errs,
     }
+    if err:
+        result["error_msg"] = err
+    return result
 
 
 def refresh_library() -> dict:
-    """Tell Apple Music to refresh every track in the library.
+    """Touch every file in the library and tell Music to re-add them all.
 
-    This is slower than refresh_paths() but catches everything.
-    Returns a dict with keys: available, ok (bool), error (str or None).
+    This is the nuclear option — use when you want every track refreshed.
+    Returns: available, ok, track_count (or None), error_msg.
     """
     if not _macos():
-        return {"available": False, "ok": False, "error": "not macOS"}
+        return {"available": False, "ok": False, "error_msg": "not macOS"}
 
-    script = '''
+    # Collect all file paths from the library first
+    collect_script = """
 tell application "Music"
-    set theLib to library playlist 1
-    repeat with t in (get every file track of theLib)
+    set pathList to {}
+    repeat with t in every file track of library playlist 1
         try
-            refresh t
+            set end of pathList to POSIX path of (location of t)
         end try
     end repeat
-    return count of every file track of theLib
+    set out to ""
+    repeat with p in pathList
+        set out to out & p & linefeed
+    end repeat
+    return out
 end tell
-'''
+"""
     try:
-        out, err = _run_script(script)
-        return {
-            "available": True,
-            "ok": True,
-            "track_count": int(out) if out.isdigit() else None,
-            "error": err or None,
-        }
-    except subprocess.TimeoutExpired:
-        return {"available": True, "ok": False, "error": "timed out after 60 s"}
+        out, _ = _run_script(collect_script, timeout=60)
     except Exception as exc:
-        return {"available": True, "ok": False, "error": str(exc)}
+        return {"available": True, "ok": False, "error_msg": str(exc)}
+
+    raw_paths = [p.strip() for p in out.splitlines() if p.strip()]
+    if not raw_paths:
+        return {"available": True, "ok": True, "track_count": 0}
+
+    paths = [Path(p) for p in raw_paths]
+    result = force_refresh_paths(paths)
+    result["track_count"] = len(paths)
+    result["ok"] = result.get("errors", 0) < len(paths)
+    return result
 
 
 def is_available() -> bool:
-    """Return True if Apple Music refresh is available (macOS with Music.app)."""
     if not _macos():
         return False
     try:
-        out, _ = _run_script('tell application "Music" to return name of current playlist')
+        _run_script('tell application "Music" to return name of current playlist')
         return True
     except Exception:
         return False

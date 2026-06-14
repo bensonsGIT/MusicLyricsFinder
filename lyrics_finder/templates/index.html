@@ -511,7 +511,7 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
           <button class="btn-ghost btn-sm" id="btn-clear">✕ Clear list</button>
           <button class="btn-danger btn-sm" id="btn-clear-lyrics">🗑 Clear All Lyrics</button>
           <button class="btn-ghost btn-sm" id="btn-art-all">🖼 Find Art (All)</button>
-          <button class="btn-ghost btn-sm hidden" id="btn-itunes-refresh" title="Re-read embedded tags from disk into Apple Music library">🎵 Refresh in Apple Music</button>
+          <button class="btn-ghost btn-sm hidden" id="btn-itunes-refresh" title="Force Apple Music to re-read embedded tags: touches files then removes + re-adds each track">🎵 Force Refresh in Apple Music</button>
           <button class="btn-primary" id="btn-all">▶ Process All</button>
         </div>
         <div class="progress-wrap" id="progress-wrap">
@@ -1414,9 +1414,11 @@ async function refreshInItunes() {
       return;
     }
 
-    const msg = `Apple Music: ${data.refreshed} track${data.refreshed !== 1 ? 's' : ''} refreshed`
-      + (data.not_found ? `, ${data.not_found} not in library` : '');
-    showToast(msg, data.refreshed > 0 ? 'success' : '');
+    const total = (data.refreshed || 0) + (data.added || 0);
+    const msg = `Apple Music: ${total} track${total !== 1 ? 's' : ''} force-refreshed`
+      + (data.added   ? ` (${data.added} newly added)` : '')
+      + (data.errors  ? ` · ${data.errors} failed` : '');
+    showToast(msg, total > 0 ? 'success' : 'error');
 
     if (data.errors && data.errors.length) {
       console.warn('iTunes refresh errors:', data.errors);
@@ -1425,7 +1427,7 @@ async function refreshInItunes() {
     showToast('Network error: ' + e.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = '🎵 Refresh in Apple Music';
+    btn.textContent = '🎵 Force Refresh in Apple Music';
   }
 }
 

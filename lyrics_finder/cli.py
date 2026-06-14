@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 from .artwork import ArtworkError, ArtworkFinder
-from .itunes_sync import refresh_paths
+from .itunes_sync import force_refresh_paths
 from .metadata import clear_artwork, clear_lyrics, read_metadata, write_artwork, write_lyrics
 from .sources import LyricsFinder
 
@@ -346,13 +346,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.refresh_itunes and ok > 0:
         print("\n[info] Refreshing processed tracks in Apple Music…")
-        result = refresh_paths([p for p in files])
+        result = force_refresh_paths(files)
         if not result["available"]:
             print("[info] Apple Music refresh is only available on macOS — skipping.")
         else:
             print(f"[ok] Apple Music: {result['refreshed']} refreshed, "
-                  f"{result['not_found']} not in library.")
-            for err in result.get("errors") or []:
-                print(f"[warn] {err}")
+                  f"{result['added']} added, {result['errors']} failed.")
+            if result.get("error_msg"):
+                print(f"[warn] {result['error_msg']}")
 
     return 0

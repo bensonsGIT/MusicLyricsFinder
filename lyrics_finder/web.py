@@ -3,7 +3,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 from .artwork import ArtworkError, ArtworkFinder
-from .itunes_sync import refresh_library, refresh_paths
+from .itunes_sync import force_refresh_paths, refresh_library
 from .metadata import clear_artwork, clear_lyrics, read_metadata, write_artwork, write_lyrics
 from .sources import LyricsFinder
 
@@ -140,7 +140,7 @@ def itunes_refresh():
     if not paths:
         return jsonify({"error": "No paths provided"}), 400
 
-    result = refresh_paths(paths)
+    result = force_refresh_paths(paths)
     return jsonify(result)
 
 
