@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from .artwork import ArtworkError, ArtworkFinder
+from .itunes_sync import refresh_paths
 from .metadata import clear_artwork, clear_lyrics, read_metadata, write_artwork, write_lyrics
 from .sources import LyricsFinder
 
@@ -212,6 +213,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Remove embedded album art from the given files instead of searching",
     )
     parser.add_argument(
+        "--refresh-itunes",
+        action="store_true",
+        help="After writing lyrics/art, tell Apple Music to refresh those tracks (macOS only)",
+    )
+    parser.add_argument(
         "--musixmatch-key",
         default="",
         metavar="KEY",
@@ -337,4 +343,16 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\n{'='*60}")
     print(f"Done. {ok} updated, {skipped} skipped.")
+
+    if args.refresh_itunes and ok > 0:
+        print("\n[info] Refreshing processed tracks in Apple Music…")
+        result = refresh_paths([p for p in files])
+        if not result["available"]:
+            print("[info] Apple Music refresh is only available on macOS — skipping.")
+        else:
+            print(f"[ok] Apple Music: {result['refreshed']} refreshed, "
+                  f"{result['not_found']} not in library.")
+            for err in result.get("errors") or []:
+                print(f"[warn] {err}")
+
     return 0

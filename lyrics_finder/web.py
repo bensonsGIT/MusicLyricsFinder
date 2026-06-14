@@ -3,6 +3,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 from .artwork import ArtworkError, ArtworkFinder
+from .itunes_sync import refresh_library, refresh_paths
 from .metadata import clear_artwork, clear_lyrics, read_metadata, write_artwork, write_lyrics
 from .sources import LyricsFinder
 
@@ -119,6 +120,42 @@ def process():
             "dry_run": dry_run,
         }
     )
+
+
+# ── Apple Music refresh ────────────────────────────────────────────────────
+
+@app.route("/api/itunes/refresh", methods=["POST"])
+def itunes_refresh():
+    """Refresh specific file paths in Apple Music (macOS only).
+
+    Body: {"paths": ["/abs/path/to/song.mp3", ...]}
+    Returns counts of refreshed / not_found tracks plus any errors.
+    """
+    data = request.get_json(force=True) or {}
+    raw_paths = data.get("paths") or []
+    if not isinstance(raw_paths, list):
+        return jsonify({"error": "'paths' must be a list"}), 400
+
+    paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
+    if not paths:
+        return jsonify({"error": "No paths provided"}), 400
+
+    result = refresh_paths(paths)
+    return jsonify(result)
+
+
+@app.route("/api/itunes/refresh-library", methods=["POST"])
+def itunes_refresh_library():
+    """Tell Apple Music to refresh its entire library (macOS only)."""
+    result = refresh_library()
+    return jsonify(result)
+
+
+@app.route("/api/itunes/available", methods=["GET"])
+def itunes_available():
+    """Return whether Apple Music refresh is available on this machine."""
+    import sys
+    return jsonify({"available": sys.platform == "darwin"})
 
 
 # ── Album Art API ──────────────────────────────────────────────────────────

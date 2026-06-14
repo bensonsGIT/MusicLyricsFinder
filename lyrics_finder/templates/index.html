@@ -511,6 +511,7 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
           <button class="btn-ghost btn-sm" id="btn-clear">✕ Clear list</button>
           <button class="btn-danger btn-sm" id="btn-clear-lyrics">🗑 Clear All Lyrics</button>
           <button class="btn-ghost btn-sm" id="btn-art-all">🖼 Find Art (All)</button>
+          <button class="btn-ghost btn-sm hidden" id="btn-itunes-refresh" title="Re-read embedded tags from disk into Apple Music library">🎵 Refresh in Apple Music</button>
           <button class="btn-primary" id="btn-all">▶ Process All</button>
         </div>
         <div class="progress-wrap" id="progress-wrap">
@@ -1363,6 +1364,68 @@ async function applyArt(result, cardEl) {
   } catch (e) {
     showToast('Network error: ' + e.message, 'error');
     cardEl.classList.remove('applying');
+  }
+}
+
+// ── Apple Music refresh ────────────────────────────────────────────────────
+
+(async function checkItunesAvailable() {
+  try {
+    const r = await fetch('/api/itunes/available');
+    const d = await r.json();
+    if (d.available) {
+      $('btn-itunes-refresh').classList.remove('hidden');
+    }
+  } catch (_) {}
+})();
+
+$('btn-itunes-refresh').addEventListener('click', refreshInItunes);
+
+async function refreshInItunes() {
+  // Collect paths of files that were successfully processed
+  const processed = state.files.filter(f => {
+    const r = state.results[f.path];
+    return r && r.status === 'success' && !r.dry_run;
+  });
+
+  if (!processed.length) {
+    showToast('No processed files to refresh — run Process All first', 'error');
+    return;
+  }
+
+  const btn = $('btn-itunes-refresh');
+  btn.disabled = true;
+  btn.textContent = '⏳ Refreshing…';
+
+  try {
+    const res = await fetch('/api/itunes/refresh', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ paths: processed.map(f => f.path) }),
+    });
+    const data = await res.json();
+
+    if (!data.available) {
+      showToast('Apple Music refresh is only available on macOS', 'error');
+      return;
+    }
+    if (!res.ok) {
+      showToast(data.error || 'Refresh failed', 'error');
+      return;
+    }
+
+    const msg = `Apple Music: ${data.refreshed} track${data.refreshed !== 1 ? 's' : ''} refreshed`
+      + (data.not_found ? `, ${data.not_found} not in library` : '');
+    showToast(msg, data.refreshed > 0 ? 'success' : '');
+
+    if (data.errors && data.errors.length) {
+      console.warn('iTunes refresh errors:', data.errors);
+    }
+  } catch (e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🎵 Refresh in Apple Music';
   }
 }
 
