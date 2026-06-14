@@ -511,7 +511,8 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
           <button class="btn-ghost btn-sm" id="btn-clear">✕ Clear list</button>
           <button class="btn-danger btn-sm" id="btn-clear-lyrics">🗑 Clear All Lyrics</button>
           <button class="btn-ghost btn-sm" id="btn-art-all">🖼 Find Art (All)</button>
-          <button class="btn-ghost btn-sm hidden" id="btn-itunes-refresh" title="Force Apple Music to re-read embedded tags: touches files then removes + re-adds each track">🎵 Force Refresh in Apple Music</button>
+          <button class="btn-ghost btn-sm hidden" id="btn-itunes-refresh" title="Force Apple Music to re-read embedded tags for files processed this session">🎵 Force Refresh in Apple Music</button>
+          <button class="btn-ghost btn-sm hidden" id="btn-itunes-refresh-library" title="Force Apple Music to re-read embedded tags for every track in your library (no files need to be processed first)">🎵 Refresh Entire Library</button>
           <button class="btn-primary" id="btn-all">▶ Process All</button>
         </div>
         <div class="progress-wrap" id="progress-wrap">
@@ -1375,11 +1376,13 @@ async function applyArt(result, cardEl) {
     const d = await r.json();
     if (d.available) {
       $('btn-itunes-refresh').classList.remove('hidden');
+      $('btn-itunes-refresh-library').classList.remove('hidden');
     }
   } catch (_) {}
 })();
 
 $('btn-itunes-refresh').addEventListener('click', refreshInItunes);
+$('btn-itunes-refresh-library').addEventListener('click', refreshLibrary);
 
 async function refreshInItunes() {
   // Collect paths of files that were successfully processed
@@ -1428,6 +1431,37 @@ async function refreshInItunes() {
   } finally {
     btn.disabled = false;
     btn.textContent = '🎵 Force Refresh in Apple Music';
+  }
+}
+
+async function refreshLibrary() {
+  const btn = $('btn-itunes-refresh-library');
+  btn.disabled = true;
+  btn.textContent = '⏳ Refreshing library…';
+
+  try {
+    const res = await fetch('/api/itunes/refresh-library', { method: 'POST' });
+    const data = await res.json();
+
+    if (!data.available) {
+      showToast('Apple Music refresh is only available on macOS', 'error');
+      return;
+    }
+    if (!res.ok) {
+      showToast(data.error_msg || 'Refresh failed', 'error');
+      return;
+    }
+
+    const total = (data.refreshed || 0) + (data.added || 0);
+    const count = data.track_count != null ? ` of ${data.track_count}` : '';
+    const msg = `Apple Music: ${total}${count} tracks force-refreshed`
+      + (data.errors ? ` · ${data.errors} failed` : '');
+    showToast(msg, total > 0 ? 'success' : 'error');
+  } catch (e) {
+    showToast('Network error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🎵 Refresh Entire Library';
   }
 }
 
