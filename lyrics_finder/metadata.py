@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, ID3NoHeaderError, TIT2, TPE1, TALB, USLT, TCON, TRCK, TDRC, TPOS
-from mutagen.mp4 import MP4
+from mutagen.id3 import ID3, ID3NoHeaderError, TIT2, TPE1, TALB, USLT, TCON, TRCK, TDRC, TPOS, APIC
+from mutagen.mp4 import MP4, MP4Cover
 
 _SENTINEL = object()  # distinguishes "not provided" from ""
 
@@ -25,7 +25,7 @@ def read_metadata(path: Path) -> dict:
         "title": "", "artist": "", "album": "", "album_artist": "",
         "genre": "", "year": "", "track_number": "", "track_total": "",
         "disc_number": "", "disc_total": "", "composer": "", "comment": "",
-        "lyrics": "",
+        "lyrics": "", "has_artwork": False,
     }
 
     if suffix == ".mp3":
@@ -51,6 +51,7 @@ def read_metadata(path: Path) -> dict:
         info["comment"] = comm[0].text[0] if comm else ""
         uslt = tags.getall("USLT")
         info["lyrics"] = uslt[0].text if uslt else ""
+        info["has_artwork"] = bool(tags.getall("APIC"))
     elif suffix in (".m4a", ".aac"):
         tags = MP4(path).tags or {}
         info["title"]        = (tags.get("\xa9nam") or [""])[0]
@@ -62,6 +63,7 @@ def read_metadata(path: Path) -> dict:
         info["composer"]     = (tags.get("\xa9wrt") or [""])[0]
         info["comment"]      = (tags.get("\xa9cmt") or [""])[0]
         info["lyrics"]       = (tags.get("\xa9lyr") or [""])[0]
+        info["has_artwork"]  = bool(tags.get("covr"))
         trkn = tags.get("trkn")
         if trkn:
             info["track_number"] = str(trkn[0][0])
@@ -124,5 +126,69 @@ def write_lyrics(path: Path, lyrics: str, title: str = "", artist: str = "", alb
         if album:
             audio.tags["\xa9alb"] = [album]
         audio.save()
+    else:
+        raise ValueError(f"Unsupported file format: {suffix!r} (supported: .mp3, .m4a, .aac)")
+
+
+def read_artwork(path: Path) -> tuple[bytes, str] | tuple[None, None]:
+    """Return embedded cover art as (image_bytes, mime), or (None, None)."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".mp3":
+        _, tags = _open_mp3(path)
+        apics = tags.getall("APIC")
+        if apics:
+            return apics[0].data, (apics[0].mime or "image/jpeg")
+        return None, None
+    elif suffix in (".m4a", ".aac"):
+        tags = MP4(path).tags or {}
+        covers = tags.get("covr")
+        if covers:
+            cover = covers[0]
+            mime = "image/png" if cover.imageformat == MP4Cover.FORMAT_PNG else "image/jpeg"
+            return bytes(cover), mime
+        return None, None
+    else:
+        raise ValueError(f"Unsupported file format: {suffix!r} (supported: .mp3, .m4a, .aac)")
+
+
+def write_artwork(path: Path, image: bytes, mime: str = "image/jpeg") -> None:
+    """Embed *image* as the front-cover art, replacing any existing cover."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".mp3":
+        _, tags = _open_mp3(path)
+        tags.delall("APIC")
+        tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=image))
+        tags.save(path)
+    elif suffix in (".m4a", ".aac"):
+        audio = MP4(path)
+        if audio.tags is None:
+            audio.add_tags()
+        fmt = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
+        audio.tags["covr"] = [MP4Cover(image, imageformat=fmt)]
+        audio.save()
+    else:
+        raise ValueError(f"Unsupported file format: {suffix!r} (supported: .mp3, .m4a, .aac)")
+
+
+def clear_artwork(path: Path) -> bool:
+    """Remove embedded cover art from a file. Returns True if art was present."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".mp3":
+        _, tags = _open_mp3(path)
+        had = bool(tags.getall("APIC"))
+        if had:
+            tags.delall("APIC")
+            tags.save(path)
+        return had
+    elif suffix in (".m4a", ".aac"):
+        audio = MP4(path)
+        had = bool(audio.tags and audio.tags.get("covr"))
+        if had:
+            del audio.tags["covr"]
+            audio.save()
+        return had
     else:
         raise ValueError(f"Unsupported file format: {suffix!r} (supported: .mp3, .m4a, .aac)")

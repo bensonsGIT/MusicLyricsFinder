@@ -170,3 +170,76 @@ def test_title_override(tmp_path):
 
     finder.find.assert_called_once()
     assert finder.find.call_args[0][0] == "Custom Title"
+
+
+# ---------------------------------------------------------------------------
+# Album art
+# ---------------------------------------------------------------------------
+
+_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 32 + b"\xff\xd9"
+
+
+def _mock_art_finder():
+    from lyrics_finder.artwork import ArtworkResult
+    finder = MagicMock()
+    finder.DEFAULT_SIZE = 600
+    finder.find.return_value = ArtworkResult(
+        "Artist", "Album", "", "thumb", "https://x/600x600bb.jpg", "album")
+    finder.download.return_value = (_JPEG, "image/jpeg")
+    return finder
+
+
+def test_artwork_only_embeds_art(tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    art = _mock_art_finder()
+
+    with patch("lyrics_finder.cli.ArtworkFinder", return_value=art):
+        rc = main(["--artwork-only", str(p)])
+
+    assert rc == 0
+    art.find.assert_called_once()
+    from lyrics_finder.metadata import read_metadata
+    assert read_metadata(p)["has_artwork"] is True
+
+
+def test_artwork_alongside_lyrics(tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    finder = _mock_finder()
+    art = _mock_art_finder()
+
+    with patch("lyrics_finder.cli.LyricsFinder", return_value=finder), \
+         patch("lyrics_finder.cli.ArtworkFinder", return_value=art):
+        rc = main(["--artwork", str(p)])
+
+    assert rc == 0
+    from lyrics_finder.metadata import read_metadata
+    meta = read_metadata(p)
+    assert "Test lyrics" in meta["lyrics"]
+    assert meta["has_artwork"] is True
+
+
+def test_artwork_dry_run_does_not_write(tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    art = _mock_art_finder()
+
+    with patch("lyrics_finder.cli.ArtworkFinder", return_value=art):
+        rc = main(["--artwork-only", "--dry-run", str(p)])
+
+    assert rc == 0
+    art.download.assert_not_called()
+    from lyrics_finder.metadata import read_metadata
+    assert read_metadata(p)["has_artwork"] is False
+
+
+def test_clear_artwork_flag(tmp_path):
+    p = tmp_path / "song.mp3"
+    _make_mp3(p)
+    from lyrics_finder.metadata import write_artwork, read_metadata
+    write_artwork(p, _JPEG, "image/jpeg")
+
+    rc = main(["--clear-artwork", str(p)])
+    assert rc == 0
+    assert read_metadata(p)["has_artwork"] is False

@@ -2,7 +2,8 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
-from .metadata import clear_lyrics, read_metadata, write_lyrics
+from .artwork import ArtworkError, ArtworkFinder
+from .metadata import clear_artwork, clear_lyrics, read_metadata, write_artwork, write_lyrics
 from .sources import LyricsFinder
 
 SUPPORTED_EXTENSIONS = {".mp3", ".m4a", ".aac"}
@@ -35,7 +36,7 @@ def scan():
             try:
                 meta = read_metadata(fp)
             except Exception:
-                meta = {"title": "", "artist": "", "album": "", "lyrics": ""}
+                meta = {"title": "", "artist": "", "album": "", "lyrics": "", "has_artwork": False}
             files.append(
                 {
                     "path": str(fp),
@@ -44,6 +45,7 @@ def scan():
                     "artist": meta["artist"],
                     "album": meta["album"],
                     "has_lyrics": bool(meta["lyrics"]),
+                    "has_artwork": bool(meta.get("has_artwork")),
                 }
             )
 
@@ -117,6 +119,79 @@ def process():
             "dry_run": dry_run,
         }
     )
+
+
+# ── Album Art API ──────────────────────────────────────────────────────────
+
+@app.route("/api/artwork/search", methods=["POST"])
+def artwork_search():
+    data = request.get_json(force=True) or {}
+    term = data.get("term", "").strip()
+    title = data.get("title", "").strip()
+    artist = data.get("artist", "").strip()
+    album = data.get("album", "").strip()
+    entity = (data.get("entity", "album") or "album").strip()
+    country = (data.get("country", "US") or "US").strip()
+    try:
+        size = int(data.get("size", 600) or 600)
+    except (TypeError, ValueError):
+        size = 600
+
+    if not term:
+        term = " ".join(x for x in [artist, album or title] if x).strip()
+    if not term:
+        return jsonify({"error": "Nothing to search for — provide a title/artist or a search term"}), 400
+
+    finder = ArtworkFinder()
+    try:
+        results = finder.search(term, entity=entity, country=country, size=size)
+    except ArtworkError as e:
+        return jsonify({"error": str(e)}), 502
+
+    return jsonify({"term": term, "results": [r.as_dict() for r in results]})
+
+
+@app.route("/api/artwork/apply", methods=["POST"])
+def artwork_apply():
+    data = request.get_json(force=True) or {}
+    file_path = data.get("path", "").strip()
+    art_url = data.get("art_url", "").strip()
+
+    path = Path(file_path)
+    if not path.is_file():
+        return jsonify({"error": f"File not found: {file_path}"}), 400
+    if not art_url:
+        return jsonify({"error": "No artwork URL provided"}), 400
+
+    finder = ArtworkFinder()
+    try:
+        image, mime = finder.download(art_url)
+    except ArtworkError as e:
+        return jsonify({"error": str(e)}), 502
+
+    try:
+        write_artwork(path, image, mime)
+    except Exception as e:
+        return jsonify({"error": f"Failed to embed artwork: {e}"}), 500
+
+    return jsonify({"status": "applied", "bytes": len(image), "mime": mime})
+
+
+@app.route("/api/artwork/clear", methods=["POST"])
+def artwork_clear():
+    data = request.get_json(force=True) or {}
+    file_path = data.get("path", "").strip()
+
+    path = Path(file_path)
+    if not path.is_file():
+        return jsonify({"error": f"File not found: {file_path}"}), 400
+
+    try:
+        had = clear_artwork(path)
+    except Exception as e:
+        return jsonify({"error": f"Failed to clear artwork: {e}"}), 500
+
+    return jsonify({"status": "cleared" if had else "no_artwork", "had_artwork": had})
 
 
 # ── iPod Manager API ───────────────────────────────────────────────────────

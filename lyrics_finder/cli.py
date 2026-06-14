@@ -2,7 +2,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from .metadata import clear_lyrics, read_metadata, write_lyrics
+from .artwork import ArtworkError, ArtworkFinder
+from .metadata import clear_artwork, clear_lyrics, read_metadata, write_artwork, write_lyrics
 from .sources import LyricsFinder
 
 SUPPORTED_EXTENSIONS = {".mp3", ".m4a", ".aac"}
@@ -88,6 +89,60 @@ def _process_file(
     return True
 
 
+def _process_artwork(
+    finder: ArtworkFinder,
+    path: Path,
+    meta: dict | None = None,
+    size: int = ArtworkFinder.DEFAULT_SIZE,
+    overwrite: bool = False,
+    dry_run: bool = False,
+) -> bool:
+    if meta is None:
+        try:
+            meta = read_metadata(path)
+        except Exception as e:
+            print(f"[art] Cannot read metadata: {e}")
+            return False
+
+    if meta.get("has_artwork") and not overwrite:
+        print(f"[art] {path.name}: artwork already present (use --overwrite to replace).")
+        return False
+
+    title = meta.get("title", "")
+    artist = meta.get("artist", "")
+    album = meta.get("album", "")
+    if not title and not album:
+        print(f"[art] {path.name}: no title or album tag to search artwork with.")
+        return False
+
+    print(f"[art] Searching artwork for: {(album or title)!r} / {artist or '(unknown)'!r}")
+    try:
+        result = finder.find(title, artist, album, size=size)
+    except ArtworkError as e:
+        print(f"[art] Search failed: {e}")
+        return False
+
+    if not result:
+        print("[art] No artwork found.")
+        return False
+
+    print(f"[art] Match: {result.album or result.track or '(untitled)'} — {result.artist or 'unknown'}")
+
+    if dry_run:
+        print(f"[dry-run] Would embed: {result.art_url}")
+        return True
+
+    try:
+        image, mime = finder.download(result.art_url)
+        write_artwork(path, image, mime)
+    except Exception as e:
+        print(f"[art] Failed to embed artwork: {e}")
+        return False
+
+    print(f"[ok] Artwork embedded in {path.name} ({len(image)} bytes)")
+    return True
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lyrics-finder",
@@ -135,6 +190,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Remove embedded lyrics from the given files instead of searching",
     )
     parser.add_argument(
+        "--artwork",
+        action="store_true",
+        help="Also search for and embed album art (iTunes) alongside lyrics",
+    )
+    parser.add_argument(
+        "--artwork-only",
+        action="store_true",
+        help="Embed album art only — skip lyrics search",
+    )
+    parser.add_argument(
+        "--artwork-size",
+        type=int,
+        default=ArtworkFinder.DEFAULT_SIZE,
+        metavar="PX",
+        help=f"Album-art resolution in pixels (default: {ArtworkFinder.DEFAULT_SIZE})",
+    )
+    parser.add_argument(
+        "--clear-artwork",
+        action="store_true",
+        help="Remove embedded album art from the given files instead of searching",
+    )
+    parser.add_argument(
         "--musixmatch-key",
         default="",
         metavar="KEY",
@@ -153,6 +230,29 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Found {len(files)} file(s) to process.")
+
+    if args.clear_artwork:
+        cleared = 0
+        skipped = 0
+        for path in files:
+            try:
+                if args.dry_run:
+                    had = bool(read_metadata(path).get("has_artwork"))
+                    if had:
+                        print(f"[dry-run] Would clear artwork: {path}")
+                else:
+                    had = clear_artwork(path)
+                if had:
+                    if not args.dry_run:
+                        print(f"[ok] Cleared artwork: {path}")
+                    cleared += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                print(f"[error] {path}: {e}")
+                skipped += 1
+        print(f"\nDone. {cleared} cleared, {skipped} had no artwork or failed.")
+        return 0
 
     if args.clear:
         cleared = 0
@@ -178,7 +278,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nDone. {cleared} cleared, {skipped} had no lyrics or failed.")
         return 0
 
-    finder = LyricsFinder(musixmatch_key=args.musixmatch_key)
+    do_lyrics = not args.artwork_only
+    do_artwork = args.artwork or args.artwork_only
+
+    finder = LyricsFinder(musixmatch_key=args.musixmatch_key) if do_lyrics else None
+    art_finder = ArtworkFinder() if do_artwork else None
+
     ok = 0
     skipped = 0
 
@@ -189,24 +294,43 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             pass
 
-        has_lyrics = bool(meta and meta.get("lyrics"))
-        if has_lyrics and not args.overwrite and not args.interactive:
-            print(f"\n{'='*60}")
-            print(f"File   : {path}")
-            print("[skip] Lyrics already present. Use --overwrite to replace.")
-            skipped += 1
-            continue
+        file_ok = False
 
-        success = _process_file(
-            finder=finder,
-            path=path,
-            title_override=args.title,
-            artist_override=args.artist,
-            dry_run=args.dry_run,
-            interactive=args.interactive,
-            overwrite=args.overwrite,
-        )
-        if success:
+        if do_lyrics:
+            has_lyrics = bool(meta and meta.get("lyrics"))
+            if has_lyrics and not args.overwrite and not args.interactive:
+                print(f"\n{'='*60}")
+                print(f"File   : {path}")
+                print("[skip] Lyrics already present. Use --overwrite to replace.")
+            elif _process_file(
+                finder=finder,
+                path=path,
+                title_override=args.title,
+                artist_override=args.artist,
+                dry_run=args.dry_run,
+                interactive=args.interactive,
+                overwrite=args.overwrite,
+            ):
+                file_ok = True
+
+        if do_artwork:
+            art_meta = dict(meta) if meta else None
+            if art_meta is not None:
+                if args.title:
+                    art_meta["title"] = args.title
+                if args.artist:
+                    art_meta["artist"] = args.artist
+            if _process_artwork(
+                finder=art_finder,
+                path=path,
+                meta=art_meta,
+                size=args.artwork_size,
+                overwrite=args.overwrite,
+                dry_run=args.dry_run,
+            ):
+                file_ok = True
+
+        if file_ok:
             ok += 1
         else:
             skipped += 1

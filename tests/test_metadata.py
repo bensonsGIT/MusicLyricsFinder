@@ -8,7 +8,18 @@ from mutagen.id3 import ID3, TIT2, TPE1, TALB
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
 
-from lyrics_finder.metadata import clear_lyrics, read_metadata, write_lyrics
+from lyrics_finder.metadata import (
+    clear_artwork,
+    clear_lyrics,
+    read_artwork,
+    read_metadata,
+    write_artwork,
+    write_lyrics,
+)
+
+# A tiny but structurally valid JPEG byte string (header + EOI marker).
+_FAKE_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 32 + b"\xff\xd9"
+_FAKE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +212,87 @@ class TestClearLyrics:
         p.write_bytes(b"\x00" * 100)
         with pytest.raises(ValueError, match="Unsupported"):
             clear_lyrics(p)
+
+
+# ---------------------------------------------------------------------------
+# Album art
+# ---------------------------------------------------------------------------
+
+class TestArtwork:
+    def test_mp3_write_read_roundtrip(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A")
+        assert read_metadata(p)["has_artwork"] is False
+        write_artwork(p, _FAKE_JPEG, "image/jpeg")
+        data, mime = read_artwork(p)
+        assert data == _FAKE_JPEG
+        assert mime == "image/jpeg"
+        assert read_metadata(p)["has_artwork"] is True
+
+    def test_mp3_write_preserves_tags(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="My Song", artist="My Artist", album="My Album")
+        write_artwork(p, _FAKE_JPEG)
+        meta = read_metadata(p)
+        assert meta["title"] == "My Song"
+        assert meta["artist"] == "My Artist"
+
+    def test_mp3_overwrite_replaces_cover(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A")
+        write_artwork(p, _FAKE_JPEG, "image/jpeg")
+        write_artwork(p, _FAKE_PNG, "image/png")
+        data, mime = read_artwork(p)
+        assert data == _FAKE_PNG
+        assert mime == "image/png"
+
+    def test_m4a_write_read_roundtrip(self, tmp_path):
+        p = tmp_path / "song.m4a"
+        _make_m4a(p, title="T", artist="A")
+        assert read_metadata(p)["has_artwork"] is False
+        write_artwork(p, _FAKE_JPEG, "image/jpeg")
+        data, mime = read_artwork(p)
+        assert data == _FAKE_JPEG
+        assert mime == "image/jpeg"
+        assert read_metadata(p)["has_artwork"] is True
+
+    def test_m4a_png_format(self, tmp_path):
+        p = tmp_path / "song.m4a"
+        _make_m4a(p, title="T", artist="A")
+        write_artwork(p, _FAKE_PNG, "image/png")
+        _, mime = read_artwork(p)
+        assert mime == "image/png"
+
+    def test_read_artwork_none_when_absent(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A")
+        assert read_artwork(p) == (None, None)
+
+    def test_clear_mp3_artwork(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A")
+        write_artwork(p, _FAKE_JPEG)
+        assert clear_artwork(p) is True
+        assert read_metadata(p)["has_artwork"] is False
+        assert read_metadata(p)["title"] == "T"
+
+    def test_clear_mp3_artwork_when_absent(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A")
+        assert clear_artwork(p) is False
+
+    def test_clear_m4a_artwork(self, tmp_path):
+        p = tmp_path / "song.m4a"
+        _make_m4a(p, title="T", artist="A")
+        write_artwork(p, _FAKE_JPEG)
+        assert clear_artwork(p) is True
+        assert read_metadata(p)["has_artwork"] is False
+
+    def test_artwork_unsupported_raises(self, tmp_path):
+        p = tmp_path / "song.flac"
+        p.write_bytes(b"\x00" * 100)
+        with pytest.raises(ValueError, match="Unsupported"):
+            write_artwork(p, _FAKE_JPEG)
 
 
 # ---------------------------------------------------------------------------
