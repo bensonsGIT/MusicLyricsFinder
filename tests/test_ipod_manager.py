@@ -5,10 +5,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from mutagen.id3 import ID3, TIT2, TPE1, TALB
 
 from ipod_manager.itunesdb import iTunesDB, Track, MHBD, MHLT, MHIT, MHOD
 from ipod_manager.detector import probe
-from ipod_manager.manager import _file_type
+from ipod_manager.manager import IpodManager, _file_type
 
 
 # ------------------------------------------------------------------ itunesdb
@@ -182,3 +183,125 @@ def test_add_remove_rockbox(tmp_path, monkeypatch):
     ok = mgr.remove_track(track.track_id)
     assert ok
     assert not local.exists()
+
+
+# ------------------------------------------------------------------ push_file_tags_to_db
+
+def _make_mp3(path: Path, title="", artist="", album="", lyrics=""):
+    frame = b"\xff\xfb\x90\x00" + b"\x00" * 413
+    path.write_bytes(frame * 4)
+    tags = ID3()
+    if title:
+        tags["TIT2"] = TIT2(encoding=3, text=title)
+    if artist:
+        tags["TPE1"] = TPE1(encoding=3, text=artist)
+    if album:
+        tags["TALB"] = TALB(encoding=3, text=album)
+    if lyrics:
+        from mutagen.id3 import USLT
+        tags["USLT::eng"] = USLT(encoding=3, lang="eng", desc="", text=lyrics)
+    tags.save(str(path))
+
+
+def _stock_mount(tmp_path: Path):
+    db_dir = tmp_path / "iPod_Control" / "iTunes"
+    db_dir.mkdir(parents=True)
+    music_dir = tmp_path / "iPod_Control" / "Music" / "F00"
+    music_dir.mkdir(parents=True)
+    # probe() requires a non-empty iTunesDB file to recognise the device
+    empty_db = iTunesDB()
+    empty_db.write(db_dir / "iTunesDB")
+    from ipod_manager.detector import probe
+    return probe(tmp_path)
+
+
+def test_push_tags_updates_lyrics_in_db(tmp_path):
+    """Lyrics embedded in a file should be written to the DB entry."""
+    mount = _stock_mount(tmp_path)
+
+    # Create a real MP3 on the iPod path with lyrics embedded
+    mp3_path = tmp_path / "iPod_Control" / "Music" / "F00" / "0001.mp3"
+    _make_mp3(mp3_path, title="My Song", artist="My Artist", lyrics="Verse 1\nVerse 2")
+
+    # Build a DB whose entry has no lyrics yet
+    db = iTunesDB()
+    db.tracks.append(Track(
+        title="My Song", artist="My Artist",
+        ipod_path=":iPod_Control:Music:F00:0001.mp3",
+        lyrics="",
+    ))
+    db.write(mount.itunesdb_path)
+
+    mgr = IpodManager(mount)
+    updated, failed = mgr.push_file_tags_to_db()
+
+    assert updated == 1
+    assert failed == 0
+
+    # Re-read the DB and confirm lyrics were written
+    db2 = iTunesDB.read(mount.itunesdb_path)
+    assert "Verse 1" in db2.tracks[0].lyrics
+
+
+def test_push_tags_clears_lyrics_when_file_has_none(tmp_path):
+    """If a file has no embedded lyrics, the DB entry's lyrics should be cleared."""
+    mount = _stock_mount(tmp_path)
+
+    mp3_path = tmp_path / "iPod_Control" / "Music" / "F00" / "0001.mp3"
+    _make_mp3(mp3_path, title="T", artist="A")  # no lyrics
+
+    db = iTunesDB()
+    db.tracks.append(Track(
+        title="T", artist="A",
+        ipod_path=":iPod_Control:Music:F00:0001.mp3",
+        lyrics="Old stale lyrics",
+    ))
+    db.write(mount.itunesdb_path)
+
+    mgr = IpodManager(mount)
+    mgr.push_file_tags_to_db()
+
+    db2 = iTunesDB.read(mount.itunesdb_path)
+    assert db2.tracks[0].lyrics == ""
+
+
+def test_push_tags_counts_missing_files(tmp_path):
+    """Tracks whose files don't exist on disk are counted as failed."""
+    mount = _stock_mount(tmp_path)
+
+    db = iTunesDB()
+    db.tracks.append(Track(
+        title="Ghost", ipod_path=":iPod_Control:Music:F00:ghost.mp3",
+    ))
+    db.write(mount.itunesdb_path)
+
+    mgr = IpodManager(mount)
+    updated, failed = mgr.push_file_tags_to_db()
+
+    assert updated == 0
+    assert failed == 1
+
+
+def test_push_tags_selective_fields(tmp_path):
+    """When fields={'lyrics'} only lyrics are synced; other tags stay."""
+    mount = _stock_mount(tmp_path)
+
+    mp3_path = tmp_path / "iPod_Control" / "Music" / "F00" / "0001.mp3"
+    _make_mp3(mp3_path, title="File Title", artist="File Artist", lyrics="New lyrics")
+
+    db = iTunesDB()
+    db.tracks.append(Track(
+        title="DB Title", artist="DB Artist",
+        ipod_path=":iPod_Control:Music:F00:0001.mp3",
+        lyrics="",
+    ))
+    db.write(mount.itunesdb_path)
+
+    mgr = IpodManager(mount)
+    mgr.push_file_tags_to_db(fields={"lyrics"})
+
+    db2 = iTunesDB.read(mount.itunesdb_path)
+    t = db2.tracks[0]
+    assert "New lyrics" in t.lyrics
+    # Title should NOT have been synced from the file
+    assert t.title == "DB Title"

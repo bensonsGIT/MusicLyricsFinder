@@ -556,6 +556,7 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
           <div class="spacer"></div>
           <button class="btn-ghost btn-sm" id="btn-ipod-refresh">↺ Refresh</button>
           <button class="btn-ghost btn-sm" id="btn-ipod-add-toggle">+ Add Track</button>
+          <button class="btn-ghost btn-sm" id="btn-push-tags" title="Read embedded tags from every audio file and write them into the iTunesDB — use this after Lyrics Finder to make changes visible on the iPod">↑ Push Tags to DB</button>
           <button class="btn-primary" id="btn-sync-lyrics">♪ Sync Lyrics</button>
         </div>
         <!-- Sync progress -->
@@ -1753,6 +1754,83 @@ function ipodSyncLyrics() {
   src.onerror = () => {
     showToast('Sync connection lost', 'error');
     src.close(); ipod.syncing = false; $('btn-sync-lyrics').disabled = false;
+  };
+}
+
+// ── Push Tags → DB ────────────────────────────────────────────────────────
+$('btn-push-tags').addEventListener('click', ipodPushTags);
+
+function ipodPushTags() {
+  if (ipod.syncing) return;
+  ipod.syncing = true;
+  $('btn-push-tags').disabled = true;
+  $('btn-sync-lyrics').disabled = true;
+
+  const pw  = $('ipod-progress-wrap');
+  const pf  = $('ipod-progress-fill');
+  const pl  = $('ipod-progress-label');
+  const log = $('sync-log');
+  pw.classList.add('visible');
+  log.innerHTML = '';
+  log.classList.add('visible');
+
+  const params = new URLSearchParams({mount: ipod.mount});
+  const src = new EventSource(`/api/ipod/push-tags?${params}`);
+
+  src.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+
+    if (d.error) {
+      showToast(d.error, 'error');
+      src.close();
+      ipod.syncing = false;
+      $('btn-push-tags').disabled = false;
+      $('btn-sync-lyrics').disabled = false;
+      return;
+    }
+
+    if (d.done) {
+      pf.style.width = '100%';
+      pl.textContent = `Done — ${d.updated} track${d.updated !== 1 ? 's' : ''} updated, ${d.failed} missing/failed out of ${d.total}`;
+      showToast(`Tags pushed to iPod DB: ${d.updated} tracks`, 'success');
+      src.close();
+      ipod.syncing = false;
+      $('btn-push-tags').disabled = false;
+      $('btn-sync-lyrics').disabled = false;
+      return;
+    }
+
+    const pct = Math.round((d.i / d.total) * 100);
+    pf.style.width = `${pct}%`;
+    pl.textContent = `${d.i} / ${d.total} — ${d.track}`;
+
+    if (d.status === 'updated' && d.has_lyrics) {
+      const line = document.createElement('div');
+      line.className = 'log-ok';
+      line.textContent = `✓ ${d.track} (has lyrics)`;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    } else if (d.status === 'missing') {
+      const line = document.createElement('div');
+      line.className = 'log-miss';
+      line.textContent = `○ ${d.track}: file missing on iPod`;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    } else if (d.status === 'error') {
+      const line = document.createElement('div');
+      line.className = 'log-err';
+      line.textContent = `✗ ${d.track}: ${d.error}`;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+  };
+
+  src.onerror = () => {
+    showToast('Push-tags connection lost', 'error');
+    src.close();
+    ipod.syncing = false;
+    $('btn-push-tags').disabled = false;
+    $('btn-sync-lyrics').disabled = false;
   };
 }
 </script>

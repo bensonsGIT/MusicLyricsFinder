@@ -249,7 +249,84 @@ class IpodManager:
 
         return updated, failed
 
-    # --------------------------------------------------------------- private
+    def push_file_tags_to_db(
+        self,
+        *,
+        fields: set[str] | None = None,
+        on_progress=None,
+    ) -> tuple[int, int]:
+        """Read embedded tags from each iPod audio file and update the iTunesDB.
+
+        This is the right tool after you have already modified files with
+        Lyrics Finder or any other tagger — it bridges the gap between
+        what is embedded in the file and what the stock firmware actually
+        reads from the DB.
+
+        *fields*: which tag fields to sync from file → DB.  Defaults to all:
+            {"title", "artist", "album", "genre", "composer", "year",
+             "track_number", "lyrics", "file_size"}.
+
+        *on_progress*: optional callable(track, status_str) called after
+            each file so callers can stream progress.
+
+        Returns (updated, failed) counts.
+        """
+        from lyrics_finder.metadata import read_metadata
+
+        ALL_FIELDS = {
+            "title", "artist", "album", "genre", "composer",
+            "year", "track_number", "lyrics", "file_size",
+        }
+        sync = fields if fields is not None else ALL_FIELDS
+
+        db = self._load_db()
+        updated = failed = 0
+
+        for track in db.tracks:
+            local = track.local_path(self.mount.root)
+            if not _accessible(local):
+                failed += 1
+                if on_progress:
+                    on_progress(track, "missing")
+                continue
+            try:
+                meta = read_metadata(local)
+
+                if "title" in sync and meta.get("title"):
+                    track.title = meta["title"]
+                if "artist" in sync and meta.get("artist"):
+                    track.artist = meta["artist"]
+                if "album" in sync and meta.get("album"):
+                    track.album = meta["album"]
+                if "genre" in sync and meta.get("genre"):
+                    track.genre = meta["genre"]
+                if "composer" in sync and meta.get("composer"):
+                    track.composer = meta["composer"]
+                if "year" in sync and meta.get("year"):
+                    raw = str(meta["year"])
+                    if raw[:4].isdigit():
+                        track.year = int(raw[:4])
+                if "track_number" in sync and meta.get("track_number"):
+                    try:
+                        track.track_number = int(meta["track_number"])
+                    except (ValueError, TypeError):
+                        pass
+                if "lyrics" in sync:
+                    track.lyrics = meta.get("lyrics") or ""
+                if "file_size" in sync:
+                    track.file_size = local.stat().st_size
+
+                updated += 1
+                if on_progress:
+                    on_progress(track, "updated")
+            except Exception as exc:
+                failed += 1
+                if on_progress:
+                    on_progress(track, f"error: {exc}")
+
+        if not self.mount.rockbox:
+            self._save_db(db)
+        return updated, failed
 
     def _load_db(self) -> iTunesDB:
         if self._db is not None:

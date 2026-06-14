@@ -341,6 +341,91 @@ def ipod_lyrics_status():
 
 
 
+@app.route("/api/ipod/push-tags")
+def ipod_push_tags():
+    """Read embedded tags from each iPod audio file and push them to the iTunesDB.
+
+    Streams SSE events so the UI can show per-track progress.
+    """
+    import json as _json
+
+    mount_path = request.args.get("mount", "").strip()
+    raw_fields = request.args.get("fields", "").strip()
+    fields: set[str] | None = (
+        {f.strip() for f in raw_fields.split(",") if f.strip()} if raw_fields else None
+    )
+
+    ALL_FIELDS = {
+        "title", "artist", "album", "genre", "composer",
+        "year", "track_number", "lyrics", "file_size",
+    }
+    sync = fields if fields is not None else ALL_FIELDS
+
+    def generate():
+        try:
+            mount, err = _get_mount(mount_path)
+            if err:
+                yield f"data: {_json.dumps({'error': err})}\n\n"
+                return
+
+            from ipod_manager.manager import IpodManager, _accessible, _unhide_ipod_dirs
+            _unhide_ipod_dirs(mount.root)
+            mgr = IpodManager(mount)
+            db = mgr._load_db()
+            total = len(db.tracks)
+
+            updated = failed = 0
+            for i, track in enumerate(db.tracks, 1):
+                local = track.local_path(mount.root)
+                if not _accessible(local):
+                    failed += 1
+                    yield f"data: {_json.dumps({'i': i, 'total': total, 'track': track.title or local.name, 'status': 'missing'})}\n\n"
+                    continue
+                try:
+                    meta = read_metadata(local)
+                    if "title" in sync and meta.get("title"):
+                        track.title = meta["title"]
+                    if "artist" in sync and meta.get("artist"):
+                        track.artist = meta["artist"]
+                    if "album" in sync and meta.get("album"):
+                        track.album = meta["album"]
+                    if "genre" in sync and meta.get("genre"):
+                        track.genre = meta["genre"]
+                    if "composer" in sync and meta.get("composer"):
+                        track.composer = meta["composer"]
+                    if "year" in sync and meta.get("year"):
+                        raw = str(meta["year"])
+                        if raw[:4].isdigit():
+                            track.year = int(raw[:4])
+                    if "track_number" in sync and meta.get("track_number"):
+                        try:
+                            track.track_number = int(meta["track_number"])
+                        except (ValueError, TypeError):
+                            pass
+                    if "lyrics" in sync:
+                        track.lyrics = meta.get("lyrics") or ""
+                    if "file_size" in sync:
+                        track.file_size = local.stat().st_size
+                    updated += 1
+                    yield f"data: {_json.dumps({'i': i, 'total': total, 'track': track.title or local.name, 'status': 'updated', 'has_lyrics': bool(track.lyrics)})}\n\n"
+                except Exception as exc:
+                    failed += 1
+                    yield f"data: {_json.dumps({'i': i, 'total': total, 'track': track.title or local.name, 'status': 'error', 'error': str(exc)})}\n\n"
+
+            if not mount.rockbox:
+                mgr._save_db(db)
+
+            yield f"data: {_json.dumps({'done': True, 'updated': updated, 'failed': failed, 'total': total})}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'error': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        content_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.route("/api/ipod/sync-lyrics")
 def ipod_sync_lyrics():
     import json as _json
