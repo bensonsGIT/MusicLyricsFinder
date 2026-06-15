@@ -108,6 +108,56 @@ class TestFind:
             result = self.finder.find("Nope", "Nobody")
         assert result is None
 
+    def test_picks_exact_album_over_itunes_first(self):
+        # iTunes lists a wrong album first; the exact-titled album must win.
+        payload = _itunes_payload(
+            {"artist": "Adele", "album": "Greatest Hits Live",
+             "art": "https://x/a/100x100bb.jpg"},
+            {"artist": "Adele", "album": "21",
+             "art": "https://x/b/100x100bb.jpg"},
+        )
+        r = _mock_response(200, payload)
+        with patch.object(self.finder._session, "get", return_value=r):
+            result = self.finder.find("Rolling in the Deep", "Adele", "21")
+        assert result.album == "21"
+
+    def test_exact_album_match_prefers_correct_artist(self):
+        # Two different artists both have an album literally named "Hits".
+        payload = _itunes_payload(
+            {"artist": "Wrong Band", "album": "Hits",
+             "art": "https://x/a/100x100bb.jpg"},
+            {"artist": "The Beatles", "album": "Hits",
+             "art": "https://x/b/100x100bb.jpg"},
+        )
+        r = _mock_response(200, payload)
+        with patch.object(self.finder._session, "get", return_value=r):
+            result = self.finder.find("Help", "The Beatles", "Hits")
+        assert result.artist == "The Beatles"
+
+    def test_album_match_ignores_remaster_suffix(self):
+        payload = _itunes_payload(
+            {"artist": "Pink Floyd", "album": "The Wall (2011 Remastered)",
+             "art": "https://x/a/100x100bb.jpg"},
+        )
+        r = _mock_response(200, payload)
+        with patch.object(self.finder._session, "get", return_value=r):
+            result = self.finder.find("Hey You", "Pink Floyd", "The Wall")
+        assert result.album.startswith("The Wall")
+
+    def test_ranks_by_artist_when_no_album(self):
+        # Without an album tag, the candidate from the right artist wins even
+        # if iTunes returned a different artist first.
+        payload = _itunes_payload(
+            {"artist": "Cover Band", "album": "Tribute", "track": "Imagine",
+             "art": "https://x/a/100x100bb.jpg"},
+            {"artist": "John Lennon", "album": "Imagine", "track": "Imagine",
+             "art": "https://x/b/100x100bb.jpg"},
+        )
+        r = _mock_response(200, payload)
+        with patch.object(self.finder._session, "get", return_value=r):
+            result = self.finder.find("Imagine", "John Lennon")
+        assert result.artist == "John Lennon"
+
 
 class TestDownload:
     def setup_method(self):
