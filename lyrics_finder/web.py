@@ -54,6 +54,10 @@ def scan():
                     "album": meta["album"],
                     "has_lyrics": bool(meta["lyrics"]),
                     "has_artwork": bool(meta.get("has_artwork")),
+                    "art_thumb": (
+                        f"/api/file/artwork?path={str(fp)}"
+                        if meta.get("has_artwork") else None
+                    ),
                 }
             )
 
