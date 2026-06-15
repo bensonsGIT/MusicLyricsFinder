@@ -687,6 +687,29 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
     </div>
   </div>
 
+  <!-- View modal: current embedded artwork + lyrics -->
+  <div id="view-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:none;align-items:center;justify-content:center;overflow-y:auto;padding:20px 0">
+    <div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);width:min(720px,95vw);padding:24px;box-shadow:var(--shadow)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px">
+        <div>
+          <div style="font-weight:700;font-size:1rem" id="view-title">Track</div>
+          <div style="font-size:.8rem;color:var(--text-muted)" id="view-sub"></div>
+        </div>
+        <button class="btn-ghost btn-sm" id="view-close">✕</button>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div style="flex:0 0 auto">
+          <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Current Artwork</div>
+          <div id="view-art" style="width:260px;height:260px;border:1px solid var(--border2);border-radius:8px;display:flex;align-items:center;justify-content:center;background:var(--bg);overflow:hidden;color:var(--text-muted);font-size:.8rem;text-align:center;padding:8px">Loading…</div>
+        </div>
+        <div style="flex:1 1 280px;min-width:260px">
+          <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Current Lyrics</div>
+          <div id="view-lyrics" style="height:260px;overflow-y:auto;border:1px solid var(--border2);border-radius:8px;background:var(--bg);padding:12px;font-size:.8rem;line-height:1.6;white-space:pre-wrap;color:var(--text)">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <div id="toast"></div>
@@ -870,6 +893,16 @@ function buildCard(file, idx) {
     btn.textContent = '📜 Lyrics';
     btn.addEventListener('click', () => toggleLyrics(card, r));
     actions.appendChild(btn);
+  }
+
+  // View current embedded artwork + lyrics
+  if (status !== 'processing' && (file.has_lyrics || file.has_artwork)) {
+    const vbtn = document.createElement('button');
+    vbtn.className = 'btn-ghost btn-sm';
+    vbtn.textContent = '👁 View';
+    vbtn.title = 'View the artwork and lyrics currently embedded in this file';
+    vbtn.addEventListener('click', () => openViewModal(file));
+    actions.appendChild(vbtn);
   }
 
   // Process / retry button
@@ -1301,6 +1334,48 @@ async function artworkAll(missingOnly = false) {
   $('btn-art-all').disabled = false;
   $('btn-art-missing').disabled = false;
   $('btn-all').disabled = false;
+}
+
+// ── View current artwork + lyrics ───────────────────────────────────────────
+const viewModal = $('view-modal');
+$('view-close').addEventListener('click', () => { viewModal.style.display = 'none'; });
+viewModal.addEventListener('click', e => { if (e.target === viewModal) viewModal.style.display = 'none'; });
+
+async function openViewModal(file) {
+  $('view-title').textContent = file.title || file.name;
+  $('view-sub').textContent = [file.artist, file.album].filter(Boolean).join(' · ');
+  const artEl = $('view-art');
+  const lyrEl = $('view-lyrics');
+
+  // Artwork — load directly from the embedded tag via the image endpoint.
+  if (file.has_artwork) {
+    artEl.innerHTML = '';
+    const img = document.createElement('img');
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
+    img.src = `/api/file/artwork?path=${encodeURIComponent(file.path)}&t=${Date.now()}`;
+    img.alt = 'embedded cover';
+    img.onerror = () => { artEl.textContent = 'Artwork could not be loaded'; };
+    artEl.appendChild(img);
+  } else {
+    artEl.textContent = 'No artwork embedded';
+  }
+
+  // Lyrics — read live from the file's embedded tag.
+  lyrEl.textContent = 'Loading…';
+  viewModal.style.display = 'flex';
+  try {
+    const res = await fetch('/api/file/lyrics', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ path: file.path }),
+    });
+    const data = await res.json();
+    if (!res.ok) { lyrEl.textContent = data.error || 'Could not read lyrics'; return; }
+    lyrEl.textContent = data.has_lyrics ? data.lyrics : 'No lyrics embedded';
+    lyrEl.style.color = data.has_lyrics ? 'var(--text)' : 'var(--text-muted)';
+  } catch (e) {
+    lyrEl.textContent = 'Network error: ' + e.message;
+  }
 }
 
 // ── Clear ──────────────────────────────────────────────────────────────────

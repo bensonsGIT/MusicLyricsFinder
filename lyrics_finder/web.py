@@ -4,7 +4,14 @@ from flask import Flask, Response, jsonify, render_template, request, stream_wit
 
 from .artwork import ArtworkError, ArtworkFinder
 from .itunes_sync import force_refresh_paths, refresh_library
-from .metadata import clear_artwork, clear_lyrics, read_metadata, write_artwork, write_lyrics
+from .metadata import (
+    clear_artwork,
+    clear_lyrics,
+    read_artwork,
+    read_metadata,
+    write_artwork,
+    write_lyrics,
+)
 from .sources import LyricsFinder
 
 SUPPORTED_EXTENSIONS = {".mp3", ".m4a", ".aac"}
@@ -68,6 +75,53 @@ def clear():
         return jsonify({"error": f"Failed to clear lyrics: {e}"}), 500
 
     return jsonify({"status": "cleared" if had else "no_lyrics", "had_lyrics": had})
+
+
+@app.route("/api/file/lyrics", methods=["POST"])
+def file_lyrics():
+    """Return the lyrics currently embedded in a local file."""
+    data = request.get_json(force=True) or {}
+    file_path = data.get("path", "").strip()
+
+    path = Path(file_path)
+    if not path.is_file():
+        return jsonify({"error": f"File not found: {file_path}"}), 400
+
+    try:
+        meta = read_metadata(path)
+    except Exception as e:
+        return jsonify({"error": f"Cannot read metadata: {e}"}), 400
+
+    lyrics = meta.get("lyrics") or ""
+    return jsonify(
+        {
+            "has_lyrics": bool(lyrics),
+            "lyrics": lyrics,
+            "title": meta.get("title", ""),
+            "artist": meta.get("artist", ""),
+            "album": meta.get("album", ""),
+        }
+    )
+
+
+@app.route("/api/file/artwork", methods=["GET"])
+def file_artwork():
+    """Serve the album art currently embedded in a local file as an image."""
+    file_path = (request.args.get("path") or "").strip()
+
+    path = Path(file_path)
+    if not path.is_file():
+        return jsonify({"error": f"File not found: {file_path}"}), 400
+
+    try:
+        image, mime = read_artwork(path)
+    except Exception as e:
+        return jsonify({"error": f"Cannot read artwork: {e}"}), 400
+
+    if not image:
+        return jsonify({"error": "No embedded artwork"}), 404
+
+    return Response(image, mimetype=mime or "image/jpeg")
 
 
 @app.route("/api/process", methods=["POST"])
