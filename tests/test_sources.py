@@ -94,16 +94,18 @@ class TestLyricsOvhSource:
 class TestLyricsFinder:
     def test_returns_a_successful_source(self):
         finder = LyricsFinder()
-        finder._sources[0] = MagicMock(find_lyrics=lambda *a, **kw: "Lyrics from lrclib", NAME="lrclib.net")
-        finder._sources[1] = MagicMock(find_lyrics=lambda *a, **kw: "Lyrics from ovh", NAME="lyrics.ovh")
+        finder._lrclib.find_lyrics_exact = lambda *a, **kw: "Lyrics from lrclib"
+        finder._lrclib.find_lyrics_fuzzy = lambda *a, **kw: None
+        finder._ovh.find_lyrics = lambda *a, **kw: None
         lyrics, source = finder.find("Song A", "Artist")
-        assert lyrics is not None
-        assert source is not None
+        assert lyrics == "Lyrics from lrclib"
+        assert source == "lrclib.net"
 
     def test_returns_none_none_when_all_fail(self):
         finder = LyricsFinder()
-        for s in finder._sources:
-            s.find_lyrics = lambda *a, **kw: None
+        finder._lrclib.find_lyrics_exact = lambda *a, **kw: None
+        finder._lrclib.find_lyrics_fuzzy = lambda *a, **kw: None
+        finder._ovh.find_lyrics = lambda *a, **kw: None
         lyrics, source = finder.find("Song B", "Artist")
         assert lyrics is None
         assert source is None
@@ -113,8 +115,9 @@ class TestLyricsFinder:
             raise LyricsError("network down")
 
         finder = LyricsFinder()
-        finder._sources[0] = MagicMock(find_lyrics=boom, NAME="lrclib.net")
-        finder._sources[1] = MagicMock(find_lyrics=lambda *a, **kw: "Fallback lyrics", NAME="lyrics.ovh")
+        finder._lrclib.find_lyrics_exact = boom
+        finder._lrclib.find_lyrics_fuzzy = boom
+        finder._ovh.find_lyrics = lambda *a, **kw: "Fallback lyrics"
         lyrics, source = finder.find("Song C", "Artist")
         assert lyrics == "Fallback lyrics"
         assert source == "lyrics.ovh"
@@ -128,8 +131,9 @@ class TestLyricsFinder:
             call_count += 1
             return "Cached lyrics"
 
-        finder._sources[0] = MagicMock(find_lyrics=counting, NAME="lrclib.net")
-        finder._sources[1] = MagicMock(find_lyrics=lambda *a, **kw: None, NAME="lyrics.ovh")
+        finder._lrclib.find_lyrics_exact = counting
+        finder._lrclib.find_lyrics_fuzzy = lambda *a, **kw: None
+        finder._ovh.find_lyrics = lambda *a, **kw: None
 
         r1 = finder.find("Song D", "Artist")
         r2 = finder.find("Song D", "Artist")   # should hit cache
@@ -140,8 +144,9 @@ class TestLyricsFinder:
 
     def test_cache_is_case_insensitive(self):
         finder = LyricsFinder()
-        finder._sources[0] = MagicMock(find_lyrics=lambda *a, **kw: "Lyrics", NAME="lrclib.net")
-        finder._sources[1] = MagicMock(find_lyrics=lambda *a, **kw: None, NAME="lyrics.ovh")
+        finder._lrclib.find_lyrics_exact = lambda *a, **kw: "Lyrics"
+        finder._lrclib.find_lyrics_fuzzy = lambda *a, **kw: None
+        finder._ovh.find_lyrics = lambda *a, **kw: None
 
         lyrics1, _ = finder.find("Bohemian Rhapsody", "Queen")
         lyrics2, _ = finder.find("BOHEMIAN RHAPSODY", "queen")
