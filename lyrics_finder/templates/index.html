@@ -510,6 +510,7 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
           <div class="spacer"></div>
           <button class="btn-ghost btn-sm" id="btn-clear">✕ Clear list</button>
           <button class="btn-danger btn-sm" id="btn-clear-lyrics">🗑 Clear All Lyrics</button>
+          <button class="btn-ghost btn-sm" id="btn-art-missing" title="Fetch album art only for files that currently have none">🖼 Find Missing Art</button>
           <button class="btn-ghost btn-sm" id="btn-art-all">🖼 Find Art (All)</button>
           <button class="btn-ghost btn-sm hidden" id="btn-itunes-refresh" title="Force Apple Music to re-read embedded tags for files processed this session">🎵 Force Refresh in Apple Music</button>
           <button class="btn-ghost btn-sm hidden" id="btn-itunes-refresh-library" title="Force Apple Music to re-read embedded tags for every track in your library (no files need to be processed first)">🎵 Refresh Entire Library</button>
@@ -781,11 +782,16 @@ function updateStats() {
     return f.has_lyrics || (r && r.status === 'success');
   }).length;
   const hasArt = state.files.filter(f => f.has_artwork).length;
+  const missingArt = total - hasArt;
   $('stat-total').textContent  = `${total} file${total !== 1 ? 's' : ''}`;
   $('stat-lyrics').textContent = `${hasLyrics} have lyrics`;
-  $('stat-art').textContent    = `${hasArt} have art`;
+  $('stat-art').textContent    = missingArt > 0 ? `${hasArt} have art · ${missingArt} missing` : `${hasArt} have art`;
   $('stat-done').textContent   = `${state.processedCount} processed`;
   $('stat-err').textContent    = `${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
+
+  // Dim the Find Missing Art button when nothing is missing.
+  const bm = $('btn-art-missing');
+  if (bm) bm.disabled = total > 0 && missingArt === 0 && !state.processing;
 }
 
 // ── Render file list ───────────────────────────────────────────────────────
@@ -1184,8 +1190,9 @@ async function processAll() {
   $('btn-all').disabled = false;
 }
 
-// ── Find Art (All) — artwork-only batch ─────────────────────────────────────
-$('btn-art-all').addEventListener('click', artworkAll);
+// ── Find Art — artwork-only batch ───────────────────────────────────────────
+$('btn-art-all').addEventListener('click', () => artworkAll(false));
+$('btn-art-missing').addEventListener('click', () => artworkAll(true));
 
 async function artworkAuto(file, idx) {
   setCardSearchingArt(idx, file);
@@ -1231,19 +1238,26 @@ function setCardSearchingArt(idx, file) {
   }
 }
 
-async function artworkAll() {
+async function artworkAll(missingOnly = false) {
   if (state.processing) return;
 
+  // "Find Missing Art" always targets only files without embedded art,
+  // regardless of the Overwrite toggle. "Find Art (All)" honours Overwrite.
   const toProcess = state.files.filter(f => {
+    if (missingOnly) return !f.has_artwork;
     if (f.has_artwork && !isOverwrite()) return false;
     return true;
   });
 
-  if (!toProcess.length) { showToast('Every file already has artwork', 'error'); return; }
+  if (!toProcess.length) {
+    showToast(missingOnly ? 'No files are missing artwork 🎉' : 'Every file already has artwork', 'success');
+    return;
+  }
 
   state.processing = true;
   state.errorCount = 0;
   $('btn-art-all').disabled = true;
+  $('btn-art-missing').disabled = true;
   $('btn-all').disabled = true;
 
   const pw = $('progress-wrap');
@@ -1285,6 +1299,7 @@ async function artworkAll() {
   showToast(artParts.join(' · '), found > 0 ? 'success' : 'error');
   state.processing = false;
   $('btn-art-all').disabled = false;
+  $('btn-art-missing').disabled = false;
   $('btn-all').disabled = false;
 }
 
