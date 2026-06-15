@@ -871,7 +871,7 @@ function buildCard(file, idx) {
     const btn = document.createElement('button');
     btn.className = 'btn-ghost btn-sm';
     btn.textContent = (status === 'idle' || status === 'has_lyrics') ? '▶ Find' : '↺ Retry';
-    btn.addEventListener('click', () => processSingle(file, idx));
+    btn.addEventListener('click', () => processSingle(file, idx, true));
     actions.appendChild(btn);
 
     // Album art button
@@ -949,7 +949,7 @@ function toggleLyrics(card, r) {
 }
 
 // ── Process single ─────────────────────────────────────────────────────────
-async function processSingle(file, idx) {
+async function processSingle(file, idx, notify = false) {
   setCardProcessing(idx, file);
 
   try {
@@ -967,18 +967,44 @@ async function processSingle(file, idx) {
     if (!res.ok) {
       state.results[file.path] = {status: 'error', error: data.error || 'Unknown error'};
       state.errorCount++;
+      if (notify) showToast(`${file.name}: ${data.error || 'Failed'}`, 'error');
     } else {
       state.results[file.path] = data;
       state.processedCount++;
       if (data.status === 'success' && !data.dry_run) file.has_lyrics = true;
+      if (notify) showToast(lyricsChangeMessage(file, data), lyricsToastType(data));
     }
   } catch(e) {
     state.results[file.path] = {status: 'error', error: e.message};
     state.errorCount++;
+    if (notify) showToast(`${file.name}: ${e.message}`, 'error');
   }
 
   refreshCard(file, idx);
   updateStats();
+}
+
+// Human-readable summary of what changed for one processed file.
+function lyricsChangeMessage(file, data) {
+  if (data.status === 'success') {
+    const via = data.source ? ` via ${data.source}` : '';
+    return data.dry_run
+      ? `♪ Lyrics found for ${file.name}${via} (preview — not written)`
+      : `♪ Lyrics added to ${file.name}${via}`;
+  }
+  if (data.status === 'skipped') {
+    return data.reason === 'already_has_lyrics'
+      ? `${file.name} already has lyrics — enable Overwrite to replace`
+      : `${file.name}: no title tag to search with`;
+  }
+  if (data.status === 'not_found') return `No lyrics found for ${file.name}`;
+  return `${file.name}: nothing to do`;
+}
+
+function lyricsToastType(data) {
+  if (data.status === 'success') return 'success';
+  if (data.status === 'not_found') return 'error';
+  return '';
 }
 
 function setCardProcessing(idx, file) {
@@ -1133,9 +1159,27 @@ async function processAll() {
     startNext();
   });
 
+  // Tally exactly what changed across the batch for the notification.
+  let added = 0, notFound = 0, skipped = 0, errors = 0;
+  for (const file of toProcess) {
+    const r = state.results[file.path];
+    if (!r) continue;
+    if (r.status === 'success') added++;
+    else if (r.status === 'not_found') notFound++;
+    else if (r.status === 'skipped') skipped++;
+    else if (r.status === 'error') errors++;
+  }
+
+  const dry = isDryRun();
+  const parts = [];
+  parts.push(dry ? `${added} would get lyrics` : `${added} lyrics added`);
+  if (notFound) parts.push(`${notFound} not found`);
+  if (skipped) parts.push(`${skipped} skipped`);
+  if (errors) parts.push(`${errors} error${errors !== 1 ? 's' : ''}`);
+
   pf.style.width = '100%';
-  pl.textContent = `Done — ${state.processedCount} found, ${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
-  showToast(`Finished ${total} file${total !== 1 ? 's' : ''}`, 'success');
+  pl.textContent = `Done — ${parts.join(' · ')}`;
+  showToast(parts.join(' · '), added > 0 ? 'success' : (errors ? 'error' : ''));
   state.processing = false;
   $('btn-all').disabled = false;
 }
@@ -1230,9 +1274,15 @@ async function artworkAll() {
     startNext();
   });
 
+  const missed = total - found;
+  const dry = isDryRun();
+  const artParts = [];
+  artParts.push(dry ? `${found} would get artwork` : `${found} cover${found !== 1 ? 's' : ''} added`);
+  if (missed) artParts.push(`${missed} not found`);
+
   pf.style.width = '100%';
-  pl.textContent = `Done — ${found} cover${found !== 1 ? 's' : ''} found out of ${total}`;
-  showToast(`Added artwork to ${found} file${found !== 1 ? 's' : ''}`, 'success');
+  pl.textContent = `Done — ${artParts.join(' · ')}`;
+  showToast(artParts.join(' · '), found > 0 ? 'success' : 'error');
   state.processing = false;
   $('btn-art-all').disabled = false;
   $('btn-all').disabled = false;
