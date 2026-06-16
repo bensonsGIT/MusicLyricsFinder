@@ -1,7 +1,10 @@
 from pathlib import Path
 
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, ID3NoHeaderError, TIT2, TPE1, TALB, USLT, TCON, TRCK, TDRC, TPOS, APIC
+from mutagen.id3 import (
+    ID3, ID3NoHeaderError, TIT2, TPE1, TPE2, TALB, USLT, TCON, TCOM,
+    TRCK, TDRC, TPOS, COMM, APIC,
+)
 from mutagen.mp4 import MP4, MP4Cover
 
 _SENTINEL = object()  # distinguishes "not provided" from ""
@@ -125,6 +128,74 @@ def write_lyrics(path: Path, lyrics: str, title: str = "", artist: str = "", alb
             audio.tags["\xa9ART"] = [artist]
         if album:
             audio.tags["\xa9alb"] = [album]
+        audio.save()
+    else:
+        raise ValueError(f"Unsupported file format: {suffix!r} (supported: .mp3, .m4a, .aac)")
+
+
+def write_metadata(
+    path: Path,
+    *,
+    title: str | None = None,
+    artist: str | None = None,
+    album: str | None = None,
+    album_artist: str | None = None,
+    genre: str | None = None,
+    year: str | None = None,
+    track_number: str | None = None,
+    composer: str | None = None,
+    comment: str | None = None,
+) -> None:
+    """Write the given non-None tag fields to *path*, leaving others untouched."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".mp3":
+        _, tags = _open_mp3(path)
+        if title is not None:
+            tags["TIT2"] = TIT2(encoding=3, text=title)
+        if artist is not None:
+            tags["TPE1"] = TPE1(encoding=3, text=artist)
+        if album is not None:
+            tags["TALB"] = TALB(encoding=3, text=album)
+        if album_artist is not None:
+            tags["TPE2"] = TPE2(encoding=3, text=album_artist)
+        if genre is not None:
+            tags["TCON"] = TCON(encoding=3, text=genre)
+        if year is not None:
+            tags["TDRC"] = TDRC(encoding=3, text=year)
+        if track_number is not None:
+            tags["TRCK"] = TRCK(encoding=3, text=track_number)
+        if composer is not None:
+            tags["TCOM"] = TCOM(encoding=3, text=composer)
+        if comment is not None:
+            tags.delall("COMM")
+            tags.add(COMM(encoding=3, lang="eng", desc="", text=comment))
+        tags.save(path)
+    elif suffix in (".m4a", ".aac"):
+        audio = MP4(path)
+        if audio.tags is None:
+            audio.add_tags()
+        if title is not None:
+            audio.tags["\xa9nam"] = [title]
+        if artist is not None:
+            audio.tags["\xa9ART"] = [artist]
+        if album is not None:
+            audio.tags["\xa9alb"] = [album]
+        if album_artist is not None:
+            audio.tags["aART"] = [album_artist]
+        if genre is not None:
+            audio.tags["\xa9gen"] = [genre]
+        if year is not None:
+            audio.tags["\xa9day"] = [year]
+        if track_number is not None:
+            try:
+                audio.tags["trkn"] = [(int(track_number), 0)]
+            except ValueError:
+                pass
+        if composer is not None:
+            audio.tags["\xa9wrt"] = [composer]
+        if comment is not None:
+            audio.tags["\xa9cmt"] = [comment]
         audio.save()
     else:
         raise ValueError(f"Unsupported file format: {suffix!r} (supported: .mp3, .m4a, .aac)")

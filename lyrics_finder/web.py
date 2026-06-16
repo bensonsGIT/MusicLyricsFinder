@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any, Generator
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask.typing import ResponseReturnValue
 
 from .artwork import ArtworkError, ArtworkFinder
 from .itunes_sync import force_refresh_paths, refresh_library
@@ -20,12 +24,12 @@ app = Flask(__name__)
 
 
 @app.route("/")
-def index():
+def index() -> str:
     return render_template("index.html")
 
 
 @app.route("/api/scan", methods=["POST"])
-def scan():
+def scan() -> ResponseReturnValue:
     data = request.get_json(force=True)
     directory = (data or {}).get("directory", "").strip()
 
@@ -65,7 +69,7 @@ def scan():
 
 
 @app.route("/api/clear", methods=["POST"])
-def clear():
+def clear() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     file_path = data.get("path", "").strip()
 
@@ -82,7 +86,7 @@ def clear():
 
 
 @app.route("/api/file/lyrics", methods=["POST"])
-def file_lyrics():
+def file_lyrics() -> ResponseReturnValue:
     """Return the lyrics currently embedded in a local file."""
     data = request.get_json(force=True) or {}
     file_path = data.get("path", "").strip()
@@ -109,7 +113,7 @@ def file_lyrics():
 
 
 @app.route("/api/file/artwork", methods=["GET"])
-def file_artwork():
+def file_artwork() -> ResponseReturnValue:
     """Serve the album art currently embedded in a local file as an image."""
     file_path = (request.args.get("path") or "").strip()
 
@@ -129,7 +133,7 @@ def file_artwork():
 
 
 @app.route("/api/process", methods=["POST"])
-def process():
+def process() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     file_path = data.get("path", "").strip()
     overwrite = bool(data.get("overwrite", False))
@@ -183,7 +187,7 @@ def process():
 # ── Apple Music refresh ────────────────────────────────────────────────────
 
 @app.route("/api/itunes/refresh", methods=["POST"])
-def itunes_refresh():
+def itunes_refresh() -> ResponseReturnValue:
     """Refresh specific file paths in Apple Music (macOS only).
 
     Body: {"paths": ["/abs/path/to/song.mp3", ...]}
@@ -203,14 +207,14 @@ def itunes_refresh():
 
 
 @app.route("/api/itunes/refresh-library", methods=["POST"])
-def itunes_refresh_library():
+def itunes_refresh_library() -> ResponseReturnValue:
     """Tell Apple Music to refresh its entire library (macOS only)."""
     result = refresh_library()
     return jsonify(result)
 
 
 @app.route("/api/itunes/available", methods=["GET"])
-def itunes_available():
+def itunes_available() -> ResponseReturnValue:
     """Return whether Apple Music refresh is available on this machine."""
     import sys
     return jsonify({"available": sys.platform == "darwin"})
@@ -219,7 +223,7 @@ def itunes_available():
 # ── Album Art API ──────────────────────────────────────────────────────────
 
 @app.route("/api/artwork/search", methods=["POST"])
-def artwork_search():
+def artwork_search() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     term = data.get("term", "").strip()
     title = data.get("title", "").strip()
@@ -247,7 +251,7 @@ def artwork_search():
 
 
 @app.route("/api/artwork/apply", methods=["POST"])
-def artwork_apply():
+def artwork_apply() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     file_path = data.get("path", "").strip()
     art_url = data.get("art_url", "").strip()
@@ -273,7 +277,7 @@ def artwork_apply():
 
 
 @app.route("/api/artwork/auto", methods=["POST"])
-def artwork_auto():
+def artwork_auto() -> ResponseReturnValue:
     """Search for and embed the best-matching cover in one step (no picker)."""
     data = request.get_json(force=True) or {}
     file_path = data.get("path", "").strip()
@@ -335,7 +339,7 @@ def artwork_auto():
 
 
 @app.route("/api/artwork/clear", methods=["POST"])
-def artwork_clear():
+def artwork_clear() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     file_path = data.get("path", "").strip()
 
@@ -353,7 +357,7 @@ def artwork_clear():
 
 # ── iPod Manager API ───────────────────────────────────────────────────────
 
-def _get_mount(mount_path: str):
+def _get_mount(mount_path: str) -> tuple[Any | None, str | None]:
     from ipod_manager.detector import find_ipod, probe
     if mount_path:
         m = probe(Path(mount_path))
@@ -367,7 +371,7 @@ def _get_mount(mount_path: str):
 
 
 @app.route("/api/ipod/detect", methods=["POST"])
-def ipod_detect():
+def ipod_detect() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
     if err:
@@ -387,7 +391,7 @@ def ipod_detect():
 
 
 @app.route("/api/ipod/tracks", methods=["POST"])
-def ipod_tracks():
+def ipod_tracks() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
     if err:
@@ -410,7 +414,7 @@ _SYNC_WORKERS = 20
 
 
 @app.route("/api/ipod/lyrics-status", methods=["POST"])
-def ipod_lyrics_status():
+def ipod_lyrics_status() -> ResponseReturnValue:
     """Diagnostic: report how many tracks have lyrics in the DB."""
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
@@ -437,7 +441,7 @@ def ipod_lyrics_status():
 
 
 @app.route("/api/ipod/push-tags")
-def ipod_push_tags():
+def ipod_push_tags() -> ResponseReturnValue:
     """Read embedded tags from each iPod audio file and push them to the iTunesDB.
 
     Streams SSE events so the UI can show per-track progress.
@@ -456,7 +460,7 @@ def ipod_push_tags():
     }
     sync = fields if fields is not None else ALL_FIELDS
 
-    def generate():
+    def generate() -> Generator[str, None, None]:
         try:
             mount, err = _get_mount(mount_path)
             if err:
@@ -522,14 +526,14 @@ def ipod_push_tags():
 
 
 @app.route("/api/ipod/sync-lyrics")
-def ipod_sync_lyrics():
+def ipod_sync_lyrics() -> ResponseReturnValue:
     import json as _json
     from concurrent.futures import ThreadPoolExecutor
 
     mount_path = request.args.get("mount", "").strip()
     musixmatch_key = request.args.get("musixmatch_key", "").strip()
 
-    def generate():
+    def generate() -> Generator[str, None, None]:
         try:
             mount, err = _get_mount(mount_path)
             if err:
@@ -548,7 +552,7 @@ def ipod_sync_lyrics():
             db_by_id = {t.track_id: t for t in db.tracks}
             db_dirty = False
 
-            def _process(indexed_track):
+            def _process(indexed_track: tuple[int, Any]) -> tuple[dict[str, Any], int | None, str | None]:
                 i, track = indexed_track
                 local = track.local_path(mount.root)
                 key = track.title or local.name
@@ -586,7 +590,7 @@ def ipod_sync_lyrics():
 
 
 @app.route("/api/ipod/add", methods=["POST"])
-def ipod_add():
+def ipod_add() -> ResponseReturnValue:
     import tempfile
     if request.files.get("file"):
         mount_path = request.form.get("mount", "").strip()
@@ -639,7 +643,7 @@ def ipod_add():
 
 
 @app.route("/api/ipod/remove", methods=["POST"])
-def ipod_remove():
+def ipod_remove() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
     if err:
@@ -657,7 +661,7 @@ def ipod_remove():
 
 
 @app.route("/api/ipod/track-lyrics", methods=["POST"])
-def ipod_track_lyrics():
+def ipod_track_lyrics() -> ResponseReturnValue:
     """Read lyrics from a track file, or write them (file + DB) when 'lyrics' key is present."""
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
@@ -688,7 +692,7 @@ def ipod_track_lyrics():
 
 
 @app.route("/api/ipod/update-track", methods=["POST"])
-def ipod_update_track():
+def ipod_update_track() -> ResponseReturnValue:
     """Update metadata and optionally lyrics in one request."""
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
@@ -719,7 +723,7 @@ def ipod_update_track():
 
 
 @app.route("/api/ipod/update", methods=["POST"])
-def ipod_update():
+def ipod_update() -> ResponseReturnValue:
     data = request.get_json(force=True) or {}
     mount, err = _get_mount(data.get("mount", "").strip())
     if err:
