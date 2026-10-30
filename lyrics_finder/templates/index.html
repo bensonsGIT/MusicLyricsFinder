@@ -710,6 +710,51 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
     </div>
   </div>
 
+  <!-- Tags modal: edit a local file's metadata -->
+  <div id="tags-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:none;align-items:center;justify-content:center;overflow-y:auto;padding:20px 0">
+    <div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);width:min(620px,95vw);padding:24px;box-shadow:var(--shadow)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px">
+        <div>
+          <div style="font-weight:700;font-size:1rem">Edit Tags</div>
+          <div style="font-size:.78rem;color:var(--text-muted);word-break:break-all" id="tags-file"></div>
+        </div>
+        <button class="btn-ghost btn-sm" id="tags-lookup" title="Fill empty fields with the closest match from the iTunes Store">🔍 Auto-fill from iTunes</button>
+      </div>
+      <div id="tags-status" style="font-size:.76rem;color:var(--text-muted);min-height:1.2em;margin-bottom:10px"></div>
+      <div class="edit-grid">
+        <div><label>Title</label><input type="text" class="tag-field" data-field="title"></div>
+        <div><label>Artist</label><input type="text" class="tag-field" data-field="artist"></div>
+        <div><label>Album</label><input type="text" class="tag-field" data-field="album"></div>
+        <div><label>Album Artist</label><input type="text" class="tag-field" data-field="album_artist"></div>
+        <div><label>Genre</label><input type="text" class="tag-field" data-field="genre" list="genre-list"></div>
+        <div><label>Year</label><input type="text" class="tag-field" data-field="year" inputmode="numeric"></div>
+        <div><label>Track # / of</label>
+          <div style="display:flex;gap:6px"><input type="text" class="tag-field" data-field="track_number" inputmode="numeric"><input type="text" class="tag-field" data-field="track_total" inputmode="numeric"></div>
+        </div>
+        <div><label>Disc # / of</label>
+          <div style="display:flex;gap:6px"><input type="text" class="tag-field" data-field="disc_number" inputmode="numeric"><input type="text" class="tag-field" data-field="disc_total" inputmode="numeric"></div>
+        </div>
+        <div><label>Composer</label><input type="text" class="tag-field" data-field="composer"></div>
+        <div><label>Comment</label><input type="text" class="tag-field" data-field="comment"></div>
+      </div>
+      <datalist id="genre-list">
+        <option>Alternative</option><option>Blues</option><option>Classical</option><option>Country</option>
+        <option>Dance</option><option>Electronic</option><option>Folk</option><option>Hip-Hop/Rap</option>
+        <option>Jazz</option><option>Latin</option><option>Metal</option><option>Pop</option>
+        <option>R&amp;B/Soul</option><option>Reggae</option><option>Rock</option><option>Singer/Songwriter</option>
+        <option>Soundtrack</option><option>World</option>
+      </datalist>
+      <label id="tags-album-wrap" style="display:none;align-items:center;gap:8px;font-size:.8rem;margin:6px 0 0;cursor:pointer">
+        <input type="checkbox" id="tags-album-all" style="width:auto">
+        <span id="tags-album-label">Also apply album-wide fields to other tracks on this album</span>
+      </label>
+      <div class="edit-actions" style="margin-top:16px">
+        <button class="btn-ghost btn-sm" id="tags-cancel">Cancel</button>
+        <button class="btn-primary btn-sm" id="tags-save">Save</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <div id="toast"></div>
@@ -920,6 +965,14 @@ function buildCard(file, idx) {
     artBtn.title = 'Find and embed album art';
     artBtn.addEventListener('click', () => openArtModal(file, idx));
     actions.appendChild(artBtn);
+
+    // Tag editor button
+    const tagBtn = document.createElement('button');
+    tagBtn.className = 'btn-ghost btn-sm';
+    tagBtn.textContent = '✎ Tags';
+    tagBtn.title = 'Edit artist, album, genre and other metadata';
+    tagBtn.addEventListener('click', () => openTagsModal(file, idx));
+    actions.appendChild(tagBtn);
 
     // Clear button — only when the file currently has lyrics
     const hasLyricsNow = file.has_lyrics || (r && r.status === 'success' && !r.dry_run);
@@ -1375,6 +1428,155 @@ async function openViewModal(file) {
     lyrEl.style.color = data.has_lyrics ? 'var(--text)' : 'var(--text-muted)';
   } catch (e) {
     lyrEl.textContent = 'Network error: ' + e.message;
+  }
+}
+
+// ── Edit tags (metadata) ─────────────────────────────────────────────────────
+const tagsModal = $('tags-modal');
+const ALBUM_WIDE_FIELDS = ['album', 'album_artist', 'genre', 'year'];
+let tagsState = null;   // { file, idx, original: {field: value} }
+
+$('tags-cancel').addEventListener('click', () => { tagsModal.style.display = 'none'; });
+tagsModal.addEventListener('click', e => { if (e.target === tagsModal) tagsModal.style.display = 'none'; });
+$('tags-lookup').addEventListener('click', lookupTags);
+$('tags-save').addEventListener('click', saveTags);
+
+function tagInputs() { return [...document.querySelectorAll('.tag-field')]; }
+
+// Other loaded files that share this file's album tag.
+function albumSiblings(file, album) {
+  if (!album) return [];
+  return state.files.filter(f => f !== file && (f.album || '') === album);
+}
+
+async function openTagsModal(file, idx) {
+  tagsState = null;
+  $('tags-file').textContent = file.name;
+  $('tags-status').textContent = 'Loading…';
+  $('tags-album-all').checked = false;
+  $('tags-album-wrap').style.display = 'none';
+  tagInputs().forEach(inp => { inp.value = ''; inp.disabled = true; inp.style.borderColor = ''; });
+  tagsModal.style.display = 'flex';
+
+  try {
+    const res = await fetch('/api/file/metadata', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ path: file.path }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $('tags-status').textContent = data.error || 'Could not read tags'; return; }
+
+    tagInputs().forEach(inp => { inp.value = data[inp.dataset.field] || ''; inp.disabled = false; });
+    tagsState = { file, idx, original: data };
+    $('tags-status').textContent = '';
+
+    const siblings = albumSiblings(file, data.album);
+    if (siblings.length) {
+      $('tags-album-label').textContent =
+        `Also apply album, album artist, genre and year to the ${siblings.length} other track${siblings.length !== 1 ? 's' : ''} on “${data.album}”`;
+      $('tags-album-wrap').style.display = 'flex';
+    }
+  } catch (e) {
+    $('tags-status').textContent = 'Network error: ' + e.message;
+  }
+}
+
+async function lookupTags() {
+  if (!tagsState) return;
+  const val = f => (document.querySelector(`.tag-field[data-field="${f}"]`).value || '').trim();
+  if (!val('title')) { $('tags-status').textContent = 'Enter a title first to look up tags.'; return; }
+
+  const btn = $('tags-lookup');
+  btn.disabled = true;
+  $('tags-status').textContent = 'Searching the iTunes Store…';
+  try {
+    const res = await fetch('/api/metadata/lookup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ title: val('title'), artist: val('artist'), album: val('album') }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $('tags-status').textContent = data.error || 'Lookup failed'; return; }
+    if (!data.found) { $('tags-status').textContent = 'No matching track found in the iTunes Store.'; return; }
+
+    // Only fill fields that are empty — never overwrite what the user has.
+    const filled = [];
+    tagInputs().forEach(inp => {
+      const suggestion = data.tags[inp.dataset.field];
+      if (!inp.value.trim() && suggestion) {
+        inp.value = suggestion;
+        inp.style.borderColor = 'var(--success, #3fb950)';
+        filled.push(inp.dataset.field.replace('_', ' '));
+      }
+    });
+    $('tags-status').textContent = filled.length
+      ? `Filled ${filled.length} empty field${filled.length !== 1 ? 's' : ''} from “${data.tags.album || data.tags.title}” — review, then Save.`
+      : `Matched “${data.tags.title}” — every field already has a value.`;
+  } catch (e) {
+    $('tags-status').textContent = 'Network error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function postTagUpdate(paths, fields) {
+  const res = await fetch('/api/file/metadata/update', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ paths, fields }),
+  });
+  const data = await res.json();
+  if (!res.ok && !(data.updated && data.updated.length)) throw new Error(data.error || (data.errors && data.errors[0] && data.errors[0].error) || 'Save failed');
+  return data;
+}
+
+// Copy freshly-written tags back onto the loaded file objects and redraw.
+function applyUpdatedTags(updated) {
+  for (const u of updated) {
+    const i = state.files.findIndex(f => f.path === u.path);
+    if (i < 0) continue;
+    Object.assign(state.files[i], { title: u.title, artist: u.artist, album: u.album });
+    refreshCard(state.files[i], i);
+  }
+}
+
+async function saveTags() {
+  if (!tagsState) return;
+  const { file, original } = tagsState;
+
+  const changed = {};
+  tagInputs().forEach(inp => {
+    const f = inp.dataset.field;
+    if (inp.value.trim() !== (original[f] || '').trim()) changed[f] = inp.value.trim();
+  });
+  if (!Object.keys(changed).length) { tagsModal.style.display = 'none'; showToast('No changes to save'); return; }
+
+  const btn = $('tags-save');
+  btn.disabled = true;
+  $('tags-status').textContent = 'Saving…';
+  try {
+    const main = await postTagUpdate([file.path], changed);
+    let msg = `Updated ${Object.keys(changed).length} field${Object.keys(changed).length !== 1 ? 's' : ''} on ${file.name}`;
+    let updated = main.updated;
+
+    const albumFields = {};
+    ALBUM_WIDE_FIELDS.forEach(f => { if (f in changed) albumFields[f] = changed[f]; });
+    const siblings = albumSiblings(file, original.album);
+    if ($('tags-album-all').checked && siblings.length && Object.keys(albumFields).length) {
+      const batch = await postTagUpdate(siblings.map(f => f.path), albumFields);
+      updated = updated.concat(batch.updated);
+      msg += ` + ${batch.updated.length} other track${batch.updated.length !== 1 ? 's' : ''} on the album`;
+      if (batch.errors.length) msg += ` (${batch.errors.length} failed)`;
+    }
+
+    applyUpdatedTags(updated);
+    tagsModal.style.display = 'none';
+    showToast(msg, 'success');
+  } catch (e) {
+    $('tags-status').textContent = e.message;
+  } finally {
+    btn.disabled = false;
   }
 }
 

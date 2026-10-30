@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Generator
+from urllib.parse import quote
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from flask.typing import ResponseReturnValue
@@ -15,6 +16,14 @@ from .metadata import (
     read_metadata,
     write_artwork,
     write_lyrics,
+    write_metadata,
+)
+
+# Tag fields the web editor may read and write.
+EDITABLE_FIELDS = (
+    "title", "artist", "album", "album_artist", "genre", "year",
+    "track_number", "track_total", "disc_number", "disc_total",
+    "composer", "comment",
 )
 from .sources import LyricsFinder
 
@@ -59,7 +68,7 @@ def scan() -> ResponseReturnValue:
                     "has_lyrics": bool(meta["lyrics"]),
                     "has_artwork": bool(meta.get("has_artwork")),
                     "art_thumb": (
-                        f"/api/file/artwork?path={str(fp)}"
+                        f"/api/file/artwork?path={quote(str(fp))}"
                         if meta.get("has_artwork") else None
                     ),
                 }
@@ -130,6 +139,78 @@ def file_artwork() -> ResponseReturnValue:
         return jsonify({"error": "No embedded artwork"}), 404
 
     return Response(image, mimetype=mime or "image/jpeg")
+
+
+@app.route("/api/file/metadata", methods=["POST"])
+def file_metadata() -> ResponseReturnValue:
+    """Return the editable tag fields currently embedded in a local file."""
+    data = request.get_json(force=True) or {}
+    file_path = data.get("path", "").strip()
+
+    path = Path(file_path)
+    if not path.is_file():
+        return jsonify({"error": f"File not found: {file_path}"}), 400
+
+    try:
+        meta = read_metadata(path)
+    except Exception as e:
+        return jsonify({"error": f"Cannot read metadata: {e}"}), 400
+
+    return jsonify({k: meta.get(k, "") for k in EDITABLE_FIELDS})
+
+
+@app.route("/api/file/metadata/update", methods=["POST"])
+def file_metadata_update() -> ResponseReturnValue:
+    """Write tag fields to one or more local files.
+
+    Body: {"paths": [...], "fields": {"genre": "Rock", ...}}
+    Only fields present in "fields" are written; an empty string removes the tag.
+    """
+    data = request.get_json(force=True) or {}
+    raw_paths = data.get("paths") or ([data["path"]] if data.get("path") else [])
+    fields = data.get("fields") or {}
+    if not isinstance(raw_paths, list) or not isinstance(fields, dict):
+        return jsonify({"error": "'paths' must be a list and 'fields' an object"}), 400
+
+    updates = {k: str(v) for k, v in fields.items() if k in EDITABLE_FIELDS and v is not None}
+    if not updates:
+        return jsonify({"error": "No editable fields provided"}), 400
+
+    updated, errors = [], []
+    for p in raw_paths:
+        path = Path(str(p))
+        if not path.is_file():
+            errors.append({"path": str(p), "error": "File not found"})
+            continue
+        try:
+            write_metadata(path, **updates)
+            meta = read_metadata(path)
+            updated.append({"path": str(path), **{k: meta.get(k, "") for k in EDITABLE_FIELDS}})
+        except Exception as e:
+            errors.append({"path": str(p), "error": str(e)})
+
+    status = 200 if updated else 400
+    return jsonify({"updated": updated, "errors": errors}), status
+
+
+@app.route("/api/metadata/lookup", methods=["POST"])
+def metadata_lookup() -> ResponseReturnValue:
+    """Suggest tag values for a track from the iTunes Store."""
+    data = request.get_json(force=True) or {}
+    title = (data.get("title") or "").strip()
+    artist = (data.get("artist") or "").strip()
+    album = (data.get("album") or "").strip()
+    if not title:
+        return jsonify({"error": "A title is required to look up tags"}), 400
+
+    try:
+        tags = ArtworkFinder().lookup_tags(title, artist, album)
+    except ArtworkError as e:
+        return jsonify({"error": str(e)}), 502
+
+    if not tags:
+        return jsonify({"found": False})
+    return jsonify({"found": True, "tags": tags})
 
 
 @app.route("/api/process", methods=["POST"])

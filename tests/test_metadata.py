@@ -15,6 +15,7 @@ from lyrics_finder.metadata import (
     read_metadata,
     write_artwork,
     write_lyrics,
+    write_metadata,
 )
 
 # A tiny but structurally valid JPEG byte string (header + EOI marker).
@@ -304,3 +305,63 @@ def test_unsupported_format_raises(tmp_path):
     p.write_bytes(b"\x00" * 100)
     with pytest.raises(ValueError, match="Unsupported"):
         read_metadata(p)
+
+
+class TestWriteMetadata:
+    def test_mp3_writes_all_fields(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A")
+        write_metadata(p, artist="New Artist", album="LP", album_artist="Various",
+                       genre="Rock", year="1999", track_number="3", track_total="12",
+                       disc_number="1", disc_total="2", composer="C", comment="hi")
+        m = read_metadata(p)
+        assert m["title"] == "T"
+        assert m["artist"] == "New Artist"
+        assert m["album"] == "LP"
+        assert m["album_artist"] == "Various"
+        assert m["genre"] == "Rock"
+        assert m["year"] == "1999"
+        assert (m["track_number"], m["track_total"]) == ("3", "12")
+        assert (m["disc_number"], m["disc_total"]) == ("1", "2")
+        assert m["composer"] == "C"
+        assert m["comment"] == "hi"
+
+    def test_m4a_writes_all_fields(self, tmp_path):
+        p = tmp_path / "song.m4a"
+        _make_m4a(p, title="T", artist="A")
+        write_metadata(p, genre="Jazz", year="2001", album_artist="AA",
+                       track_number="5", track_total="10", disc_number="2", disc_total="2")
+        m = read_metadata(p)
+        assert m["genre"] == "Jazz"
+        assert m["year"] == "2001"
+        assert m["album_artist"] == "AA"
+        assert (m["track_number"], m["track_total"]) == ("5", "10")
+        assert (m["disc_number"], m["disc_total"]) == ("2", "2")
+        assert m["artist"] == "A"
+
+    @pytest.mark.parametrize("ext", ["mp3", "m4a"])
+    def test_empty_string_removes_tag(self, tmp_path, ext):
+        p = tmp_path / f"song.{ext}"
+        (_make_mp3 if ext == "mp3" else _make_m4a)(p, title="T", artist="A")
+        write_metadata(p, genre="Pop")
+        write_metadata(p, genre="", artist="")
+        m = read_metadata(p)
+        assert m["genre"] == ""
+        assert m["artist"] == ""
+        assert m["title"] == "T"
+
+    @pytest.mark.parametrize("ext", ["mp3", "m4a"])
+    def test_track_total_alone_keeps_track_number(self, tmp_path, ext):
+        p = tmp_path / f"song.{ext}"
+        (_make_mp3 if ext == "mp3" else _make_m4a)(p, title="T")
+        write_metadata(p, track_number="4")
+        write_metadata(p, track_total="9")
+        m = read_metadata(p)
+        assert (m["track_number"], m["track_total"]) == ("4", "9")
+
+    def test_untouched_fields_preserved(self, tmp_path):
+        p = tmp_path / "song.mp3"
+        _make_mp3(p, title="T", artist="A", album="Alb", lyrics="la la")
+        write_metadata(p, genre="Rock")
+        m = read_metadata(p)
+        assert (m["title"], m["artist"], m["album"], m["lyrics"]) == ("T", "A", "Alb", "la la")

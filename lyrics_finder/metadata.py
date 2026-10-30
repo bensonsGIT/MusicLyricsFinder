@@ -143,59 +143,90 @@ def write_metadata(
     genre: str | None = None,
     year: str | None = None,
     track_number: str | None = None,
+    track_total: str | None = None,
+    disc_number: str | None = None,
+    disc_total: str | None = None,
     composer: str | None = None,
     comment: str | None = None,
 ) -> None:
-    """Write the given non-None tag fields to *path*, leaving others untouched."""
+    """Write the given non-None tag fields to *path*, leaving others untouched.
+
+    An empty string removes that tag from the file.
+    """
     suffix = path.suffix.lower()
+
+    def _pair(num: str | None, total: str | None, cur_num: str, cur_total: str):
+        """Merge a number/total update with the values already in the file."""
+        n = cur_num if num is None else num.strip()
+        t = cur_total if total is None else total.strip()
+        return n, t
+
+    current = None
+    if any(v is not None for v in (track_number, track_total, disc_number, disc_total)):
+        current = read_metadata(path)
 
     if suffix == ".mp3":
         _, tags = _open_mp3(path)
-        if title is not None:
-            tags["TIT2"] = TIT2(encoding=3, text=title)
-        if artist is not None:
-            tags["TPE1"] = TPE1(encoding=3, text=artist)
-        if album is not None:
-            tags["TALB"] = TALB(encoding=3, text=album)
-        if album_artist is not None:
-            tags["TPE2"] = TPE2(encoding=3, text=album_artist)
-        if genre is not None:
-            tags["TCON"] = TCON(encoding=3, text=genre)
-        if year is not None:
-            tags["TDRC"] = TDRC(encoding=3, text=year)
-        if track_number is not None:
-            tags["TRCK"] = TRCK(encoding=3, text=track_number)
-        if composer is not None:
-            tags["TCOM"] = TCOM(encoding=3, text=composer)
+        text_frames = {
+            "TIT2": (TIT2, title), "TPE1": (TPE1, artist), "TALB": (TALB, album),
+            "TPE2": (TPE2, album_artist), "TCON": (TCON, genre), "TDRC": (TDRC, year),
+            "TCOM": (TCOM, composer),
+        }
+        for frame_id, (cls, value) in text_frames.items():
+            if value is None:
+                continue
+            if value.strip():
+                tags[frame_id] = cls(encoding=3, text=value.strip())
+            else:
+                tags.delall(frame_id)
+
+        for frame_id, cls, num, total, key in (
+            ("TRCK", TRCK, track_number, track_total, "track"),
+            ("TPOS", TPOS, disc_number, disc_total, "disc"),
+        ):
+            if num is None and total is None:
+                continue
+            n, t = _pair(num, total, current[f"{key}_number"], current[f"{key}_total"])
+            if n:
+                tags[frame_id] = cls(encoding=3, text=f"{n}/{t}" if t else n)
+            else:
+                tags.delall(frame_id)
+
         if comment is not None:
             tags.delall("COMM")
-            tags.add(COMM(encoding=3, lang="eng", desc="", text=comment))
+            if comment.strip():
+                tags.add(COMM(encoding=3, lang="eng", desc="", text=comment.strip()))
         tags.save(path)
     elif suffix in (".m4a", ".aac"):
         audio = MP4(path)
         if audio.tags is None:
             audio.add_tags()
-        if title is not None:
-            audio.tags["\xa9nam"] = [title]
-        if artist is not None:
-            audio.tags["\xa9ART"] = [artist]
-        if album is not None:
-            audio.tags["\xa9alb"] = [album]
-        if album_artist is not None:
-            audio.tags["aART"] = [album_artist]
-        if genre is not None:
-            audio.tags["\xa9gen"] = [genre]
-        if year is not None:
-            audio.tags["\xa9day"] = [year]
-        if track_number is not None:
+        text_atoms = {
+            "\xa9nam": title, "\xa9ART": artist, "\xa9alb": album, "aART": album_artist,
+            "\xa9gen": genre, "\xa9day": year, "\xa9wrt": composer, "\xa9cmt": comment,
+        }
+        for atom, value in text_atoms.items():
+            if value is None:
+                continue
+            if value.strip():
+                audio.tags[atom] = [value.strip()]
+            elif atom in audio.tags:
+                del audio.tags[atom]
+
+        for atom, num, total, key in (
+            ("trkn", track_number, track_total, "track"),
+            ("disk", disc_number, disc_total, "disc"),
+        ):
+            if num is None and total is None:
+                continue
+            n, t = _pair(num, total, current[f"{key}_number"], current[f"{key}_total"])
             try:
-                audio.tags["trkn"] = [(int(track_number), 0)]
+                if n:
+                    audio.tags[atom] = [(int(n), int(t) if t else 0)]
+                elif atom in audio.tags:
+                    del audio.tags[atom]
             except ValueError:
-                pass
-        if composer is not None:
-            audio.tags["\xa9wrt"] = [composer]
-        if comment is not None:
-            audio.tags["\xa9cmt"] = [comment]
+                pass  # non-numeric input; MP4 requires integers
         audio.save()
     else:
         raise ValueError(f"Unsupported file format: {suffix!r} (supported: .mp3, .m4a, .aac)")

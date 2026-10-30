@@ -206,6 +206,57 @@ class ArtworkFinder:
         )
         return ranked[0]
 
+    def lookup_tags(self, title: str, artist: str = "", album: str = "") -> dict | None:
+        """Look up a song in the iTunes Store and return its tag fields.
+
+        Returns a dict with title, artist, album, album_artist, genre, year,
+        track_number, track_total, disc_number, disc_total — or None.
+        """
+        term = f"{artist} {title}".strip()
+        if not title or not term:
+            return None
+        params = {"term": term, "entity": "song", "limit": 15, "country": "US"}
+        try:
+            r = self._session.get(self.SEARCH_URL, params=params, timeout=10)
+            r.raise_for_status()
+            items = r.json().get("results", [])
+        except requests.RequestException as e:
+            raise ArtworkError(f"iTunes search failed: {e}") from e
+        except ValueError as e:
+            raise ArtworkError(f"iTunes returned invalid JSON: {e}") from e
+
+        def score(item: dict) -> float:
+            s = 2.0 * _similar(title, item.get("trackName", ""))
+            if artist:
+                s += 2.0 * _similar(artist, item.get("artistName", ""))
+            if album:
+                s += 1.5 * _similar(album, item.get("collectionName", ""))
+            return s
+
+        if not items:
+            return None
+        best = max(items, key=score)
+        # Refuse a match whose title doesn't resemble the file's at all.
+        if _similar(title, best.get("trackName", "")) < 0.6:
+            return None
+
+        def num(key: str) -> str:
+            v = best.get(key)
+            return str(v) if v else ""
+
+        return {
+            "title": best.get("trackName", ""),
+            "artist": best.get("artistName", ""),
+            "album": best.get("collectionName", ""),
+            "album_artist": best.get("collectionArtistName") or best.get("artistName", ""),
+            "genre": best.get("primaryGenreName", ""),
+            "year": (best.get("releaseDate") or "")[:4],
+            "track_number": num("trackNumber"),
+            "track_total": num("trackCount"),
+            "disc_number": num("discNumber"),
+            "disc_total": num("discCount"),
+        }
+
     def download(self, url: str) -> tuple[bytes, str]:
         """Fetch an artwork image, returning (bytes, mime-type)."""
         try:
