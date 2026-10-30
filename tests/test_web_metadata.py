@@ -139,6 +139,19 @@ def test_autofill_fills_only_empty_fields(client, tmp_path):
     assert m["title"] == "Song"
 
 
+def test_autofill_asks_only_for_missing_fields(client, tmp_path):
+    from lyrics_finder.metadata import write_metadata
+    p = tmp_path / "a.mp3"
+    _make_mp3(p, album="LP")
+    write_metadata(p, genre="Jazz")
+    fake = _fake_finder()
+    with patch("lyrics_finder.web.MusicBrainzTags", return_value=fake):
+        client.post("/api/metadata/autofill", json={"path": str(p)})
+    need = fake.lookup_tags.call_args.kwargs["need"]
+    assert "genre" not in need and "album" not in need and "artist" not in need
+    assert "year" in need
+
+
 def test_autofill_dry_run_writes_nothing(client, tmp_path):
     p = tmp_path / "a.mp3"
     _make_mp3(p)

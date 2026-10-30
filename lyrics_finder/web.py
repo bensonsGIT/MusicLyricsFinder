@@ -227,7 +227,9 @@ def metadata_autofill() -> ResponseReturnValue:
         return jsonify({"status": "skipped", "reason": "no_title", "fields": {}})
 
     try:
-        tags = MusicBrainzTags().lookup_tags(meta["title"], meta.get("artist", ""), meta.get("album", ""))
+        tags = MusicBrainzTags().lookup_tags(
+            meta["title"], meta.get("artist", ""), meta.get("album", ""), need=set(missing)
+        )
     except MusicBrainzError as e:
         return jsonify({"error": str(e)}), 502
     if not tags:
