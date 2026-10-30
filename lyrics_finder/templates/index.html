@@ -483,6 +483,11 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
           <span class="toggle-track"></span>
           Dry run (no writes)
         </label>
+        <label class="toggle-row" title="During Process All, look each song up on MusicBrainz and fill empty tags (artist, album, genre, year, track/disc numbers). Existing tags are never changed.">
+          <input type="checkbox" id="opt-filltags">
+          <span class="toggle-track"></span>
+          Also fill missing tags
+        </label>
       </div>
 
       <!-- Advanced: optional Musixmatch key -->
@@ -718,7 +723,7 @@ input:checked + .toggle-track::after { transform: translateX(16px); }
           <div style="font-weight:700;font-size:1rem">Edit Tags</div>
           <div style="font-size:.78rem;color:var(--text-muted);word-break:break-all" id="tags-file"></div>
         </div>
-        <button class="btn-ghost btn-sm" id="tags-lookup" title="Fill empty fields with the closest match from the iTunes Store">🔍 Auto-fill from iTunes</button>
+        <button class="btn-ghost btn-sm" id="tags-lookup" title="Fill empty fields with the closest match from MusicBrainz">🔍 Auto-fill from MusicBrainz</button>
       </div>
       <div id="tags-status" style="font-size:.76rem;color:var(--text-muted);min-height:1.2em;margin-bottom:10px"></div>
       <div class="edit-grid">
@@ -784,6 +789,7 @@ function showToast(msg, type = '') {
 
 function isOverwrite() { return $('opt-overwrite').checked; }
 function isDryRun()    { return $('opt-dryrun').checked; }
+function isFillTags()  { return $('opt-filltags').checked; }
 function mmKey()       { return $('mm-key').value.trim(); }
 
 // ── Advanced toggle ────────────────────────────────────────────────────────
@@ -1201,17 +1207,44 @@ async function clearAllLyrics() {
 // ── Process all ────────────────────────────────────────────────────────────
 $('btn-all').addEventListener('click', processAll);
 
+// Fill a file's empty tags from MusicBrainz. Returns {status, fields}.
+async function fillMissingTags(file, idx) {
+  try {
+    const res = await fetch('/api/metadata/autofill', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ path: file.path, dry_run: isDryRun() }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { status: 'error', fields: {} };
+    if (data.status === 'filled' && !data.dry_run) {
+      for (const k of ['artist', 'album']) if (data.fields[k]) file[k] = data.fields[k];
+      refreshCard(file, idx);
+    }
+    return data;
+  } catch (e) {
+    return { status: 'error', fields: {} };
+  }
+}
+
+function needsLyrics(f) {
+  const r = state.results[f.path];
+  if (r && (r.status === 'success' || r.status === 'processing')) return false;
+  if (f.has_lyrics && !isOverwrite()) return false;
+  return true;
+}
+
 async function processAll() {
   if (state.processing) return;
 
-  const toProcess = state.files.filter(f => {
-    const r = state.results[f.path];
-    if (r && (r.status === 'success' || r.status === 'processing')) return false;
-    if (f.has_lyrics && !isOverwrite()) return false;
-    return true;
-  });
+  // With "fill missing tags" on, every file is visited (a file that already
+  // has lyrics may still be missing its genre); otherwise only lyric jobs.
+  const fillTags = isFillTags();
+  const toProcess = state.files.filter(f => fillTags || needsLyrics(f));
+  const lyricJobs = new Set(toProcess.filter(needsLyrics));
 
   if (!toProcess.length) { showToast('Nothing to process', 'error'); return; }
+  let tagFiles = 0, tagFields = 0;
 
   state.processing = true;
   state.processedCount = 0;
@@ -1231,8 +1264,19 @@ async function processAll() {
   await new Promise(resolve => {
     function updateProgress() {
       pf.style.width = `${(completed / total) * 100}%`;
-      pl.textContent = `${completed} / ${total} — ${state.processedCount} found, ${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
+      pl.textContent = `${completed} / ${total} — ${state.processedCount} found`
+        + (fillTags ? `, ${tagFiles} tagged` : '')
+        + `, ${state.errorCount} error${state.errorCount !== 1 ? 's' : ''}`;
       if (completed === total) resolve();
+    }
+
+    // Tags first, so a newly filled artist also helps the lyrics search.
+    async function runJob(file, idx) {
+      if (fillTags) {
+        const t = await fillMissingTags(file, idx);
+        if (t.status === 'filled') { tagFiles++; tagFields += Object.keys(t.fields).length; }
+      }
+      if (lyricJobs.has(file)) await processSingle(file, idx);
     }
 
     function startNext() {
@@ -1240,7 +1284,7 @@ async function processAll() {
         const file = toProcess[queued];
         const idx  = state.files.indexOf(file);
         queued++;
-        processSingle(file, idx).then(() => {
+        runJob(file, idx).then(() => {
           completed++;
           updateProgress();
           startNext();
@@ -1253,7 +1297,7 @@ async function processAll() {
 
   // Tally exactly what changed across the batch for the notification.
   let added = 0, notFound = 0, skipped = 0, errors = 0;
-  for (const file of toProcess) {
+  for (const file of lyricJobs) {
     const r = state.results[file.path];
     if (!r) continue;
     if (r.status === 'success') added++;
@@ -1264,14 +1308,21 @@ async function processAll() {
 
   const dry = isDryRun();
   const parts = [];
-  parts.push(dry ? `${added} would get lyrics` : `${added} lyrics added`);
-  if (notFound) parts.push(`${notFound} not found`);
-  if (skipped) parts.push(`${skipped} skipped`);
-  if (errors) parts.push(`${errors} error${errors !== 1 ? 's' : ''}`);
+  if (lyricJobs.size) {
+    parts.push(dry ? `${added} would get lyrics` : `${added} lyrics added`);
+    if (notFound) parts.push(`${notFound} not found`);
+    if (skipped) parts.push(`${skipped} skipped`);
+    if (errors) parts.push(`${errors} error${errors !== 1 ? 's' : ''}`);
+  }
+  if (fillTags) {
+    parts.push(dry
+      ? `${tagFiles} file${tagFiles !== 1 ? 's' : ''} would get ${tagFields} tag${tagFields !== 1 ? 's' : ''}`
+      : `${tagFields} tag${tagFields !== 1 ? 's' : ''} filled in ${tagFiles} file${tagFiles !== 1 ? 's' : ''}`);
+  }
 
   pf.style.width = '100%';
   pl.textContent = `Done — ${parts.join(' · ')}`;
-  showToast(parts.join(' · '), added > 0 ? 'success' : (errors ? 'error' : ''));
+  showToast(parts.join(' · '), (added > 0 || tagFiles > 0) ? 'success' : (errors ? 'error' : ''));
   state.processing = false;
   $('btn-all').disabled = false;
 }
@@ -1489,7 +1540,7 @@ async function lookupTags() {
 
   const btn = $('tags-lookup');
   btn.disabled = true;
-  $('tags-status').textContent = 'Searching the iTunes Store…';
+  $('tags-status').textContent = 'Searching MusicBrainz…';
   try {
     const res = await fetch('/api/metadata/lookup', {
       method: 'POST',
@@ -1498,7 +1549,7 @@ async function lookupTags() {
     });
     const data = await res.json();
     if (!res.ok) { $('tags-status').textContent = data.error || 'Lookup failed'; return; }
-    if (!data.found) { $('tags-status').textContent = 'No matching track found in the iTunes Store.'; return; }
+    if (!data.found) { $('tags-status').textContent = 'No matching track found on MusicBrainz.'; return; }
 
     // Only fill fields that are empty — never overwrite what the user has.
     const filled = [];

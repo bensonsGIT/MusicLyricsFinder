@@ -25,6 +25,13 @@ EDITABLE_FIELDS = (
     "track_number", "track_total", "disc_number", "disc_total",
     "composer", "comment",
 )
+
+# Fields the MusicBrainz lookup can supply when Process All fills missing tags.
+AUTOFILL_FIELDS = (
+    "artist", "album", "album_artist", "genre", "year",
+    "track_number", "track_total", "disc_number", "disc_total",
+)
+from .musicbrainz import MusicBrainzError, MusicBrainzTags
 from .sources import LyricsFinder
 
 SUPPORTED_EXTENSIONS = {".mp3", ".m4a", ".aac"}
@@ -193,9 +200,55 @@ def file_metadata_update() -> ResponseReturnValue:
     return jsonify({"updated": updated, "errors": errors}), status
 
 
+@app.route("/api/metadata/autofill", methods=["POST"])
+def metadata_autofill() -> ResponseReturnValue:
+    """Fill a file's *empty* tags from MusicBrainz; never overwrites.
+
+    Body: {"path": "...", "dry_run": false}
+    status: filled | complete (nothing missing) | not_found | skipped (no title)
+    """
+    data = request.get_json(force=True) or {}
+    file_path = (data.get("path") or "").strip()
+    dry_run = bool(data.get("dry_run", False))
+
+    path = Path(file_path)
+    if not path.is_file():
+        return jsonify({"error": f"File not found: {file_path}"}), 400
+
+    try:
+        meta = read_metadata(path)
+    except Exception as e:
+        return jsonify({"error": f"Cannot read metadata: {e}"}), 400
+
+    missing = [k for k in AUTOFILL_FIELDS if not str(meta.get(k) or "").strip()]
+    if not missing:
+        return jsonify({"status": "complete", "fields": {}})
+    if not meta.get("title"):
+        return jsonify({"status": "skipped", "reason": "no_title", "fields": {}})
+
+    try:
+        tags = MusicBrainzTags().lookup_tags(meta["title"], meta.get("artist", ""), meta.get("album", ""))
+    except MusicBrainzError as e:
+        return jsonify({"error": str(e)}), 502
+    if not tags:
+        return jsonify({"status": "not_found", "fields": {}})
+
+    fields = {k: tags[k] for k in missing if tags.get(k)}
+    if not fields:
+        return jsonify({"status": "not_found", "fields": {}})
+
+    if not dry_run:
+        try:
+            write_metadata(path, **fields)
+        except Exception as e:
+            return jsonify({"error": f"Failed to write tags: {e}"}), 500
+
+    return jsonify({"status": "filled", "fields": fields, "dry_run": dry_run})
+
+
 @app.route("/api/metadata/lookup", methods=["POST"])
 def metadata_lookup() -> ResponseReturnValue:
-    """Suggest tag values for a track from the iTunes Store."""
+    """Suggest tag values for a track from MusicBrainz."""
     data = request.get_json(force=True) or {}
     title = (data.get("title") or "").strip()
     artist = (data.get("artist") or "").strip()
@@ -204,8 +257,8 @@ def metadata_lookup() -> ResponseReturnValue:
         return jsonify({"error": "A title is required to look up tags"}), 400
 
     try:
-        tags = ArtworkFinder().lookup_tags(title, artist, album)
-    except ArtworkError as e:
+        tags = MusicBrainzTags().lookup_tags(title, artist, album)
+    except MusicBrainzError as e:
         return jsonify({"error": str(e)}), 502
 
     if not tags:

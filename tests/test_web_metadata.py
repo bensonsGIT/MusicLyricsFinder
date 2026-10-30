@@ -6,7 +6,6 @@ import pytest
 from mutagen.id3 import ID3, TALB, TIT2, TPE1
 
 from lyrics_finder import web
-from lyrics_finder.artwork import ArtworkFinder
 from lyrics_finder.metadata import read_metadata
 
 
@@ -100,7 +99,7 @@ def test_update_reports_missing_files(client, tmp_path):
 def test_lookup_returns_tags(client):
     fake = MagicMock()
     fake.lookup_tags.return_value = {"title": "Song", "genre": "Pop"}
-    with patch("lyrics_finder.web.ArtworkFinder", return_value=fake):
+    with patch("lyrics_finder.web.MusicBrainzTags", return_value=fake):
         r = client.post("/api/metadata/lookup", json={"title": "Song", "artist": "A"})
     assert r.get_json() == {"found": True, "tags": {"title": "Song", "genre": "Pop"}}
 
@@ -110,35 +109,74 @@ def test_lookup_requires_title(client):
     assert r.status_code == 400
 
 
-# ── ArtworkFinder.lookup_tags ───────────────────────────────────────────────
+# ── /api/metadata/autofill ──────────────────────────────────────────────────
 
-def _itunes(*items):
-    m = MagicMock()
-    m.json.return_value = {"results": list(items)}
-    m.raise_for_status.return_value = None
-    return m
-
-
-def test_lookup_tags_picks_best_match():
-    finder = ArtworkFinder()
-    resp = _itunes(
-        {"trackName": "Imagine", "artistName": "Cover Band", "collectionName": "Tribute",
-         "primaryGenreName": "Pop", "releaseDate": "2010-01-01T00:00:00Z", "trackNumber": 9},
-        {"trackName": "Imagine", "artistName": "John Lennon", "collectionName": "Imagine",
-         "primaryGenreName": "Rock", "releaseDate": "1971-09-09T00:00:00Z",
-         "trackNumber": 1, "trackCount": 10, "discNumber": 1, "discCount": 1},
-    )
-    with patch.object(finder._session, "get", return_value=resp):
-        tags = finder.lookup_tags("Imagine", "John Lennon")
-    assert tags["artist"] == "John Lennon"
-    assert tags["genre"] == "Rock"
-    assert tags["year"] == "1971"
-    assert (tags["track_number"], tags["track_total"]) == ("1", "10")
-    assert tags["album_artist"] == "John Lennon"
+_SUGGESTED = {
+    "title": "Song", "artist": "iTunes Artist", "album": "iTunes Album",
+    "album_artist": "iTunes Artist", "genre": "Rock", "year": "1999",
+    "track_number": "3", "track_total": "10", "disc_number": "1", "disc_total": "1",
+}
 
 
-def test_lookup_tags_rejects_unrelated_title():
-    finder = ArtworkFinder()
-    resp = _itunes({"trackName": "Completely Different", "artistName": "X"})
-    with patch.object(finder._session, "get", return_value=resp):
-        assert finder.lookup_tags("Imagine", "John Lennon") is None
+def _fake_finder(tags=_SUGGESTED):
+    fake = MagicMock()
+    fake.lookup_tags.return_value = dict(tags) if tags else None
+    return fake
+
+
+def test_autofill_fills_only_empty_fields(client, tmp_path):
+    p = tmp_path / "a.mp3"
+    _make_mp3(p, artist="My Artist")  # artist set, album/genre/year empty
+    with patch("lyrics_finder.web.MusicBrainzTags", return_value=_fake_finder()):
+        r = client.post("/api/metadata/autofill", json={"path": str(p)})
+    data = r.get_json()
+    assert data["status"] == "filled"
+    assert "artist" not in data["fields"]
+    m = read_metadata(p)
+    assert m["artist"] == "My Artist"          # never overwritten
+    assert (m["album"], m["genre"], m["year"]) == ("iTunes Album", "Rock", "1999")
+    assert (m["track_number"], m["track_total"]) == ("3", "10")
+    assert m["title"] == "Song"
+
+
+def test_autofill_dry_run_writes_nothing(client, tmp_path):
+    p = tmp_path / "a.mp3"
+    _make_mp3(p)
+    with patch("lyrics_finder.web.MusicBrainzTags", return_value=_fake_finder()):
+        r = client.post("/api/metadata/autofill", json={"path": str(p), "dry_run": True})
+    data = r.get_json()
+    assert data["status"] == "filled" and data["dry_run"] is True
+    assert data["fields"]["genre"] == "Rock"
+    assert read_metadata(p)["genre"] == ""
+
+
+def test_autofill_complete_file_skips_lookup(client, tmp_path):
+    from lyrics_finder.metadata import write_metadata
+    p = tmp_path / "a.mp3"
+    _make_mp3(p, album="LP")
+    write_metadata(p, album_artist="A", genre="Pop", year="2000", track_number="1",
+                   track_total="9", disc_number="1", disc_total="1")
+    fake = _fake_finder()
+    with patch("lyrics_finder.web.MusicBrainzTags", return_value=fake):
+        r = client.post("/api/metadata/autofill", json={"path": str(p)})
+    assert r.get_json()["status"] == "complete"
+    fake.lookup_tags.assert_not_called()
+
+
+def test_autofill_not_found(client, tmp_path):
+    p = tmp_path / "a.mp3"
+    _make_mp3(p)
+    with patch("lyrics_finder.web.MusicBrainzTags", return_value=_fake_finder(None)):
+        r = client.post("/api/metadata/autofill", json={"path": str(p)})
+    assert r.get_json()["status"] == "not_found"
+    assert read_metadata(p)["genre"] == ""
+
+
+def test_autofill_skips_file_without_title(client, tmp_path):
+    p = tmp_path / "a.mp3"
+    _make_mp3(p, title="")
+    fake = _fake_finder()
+    with patch("lyrics_finder.web.MusicBrainzTags", return_value=fake):
+        r = client.post("/api/metadata/autofill", json={"path": str(p)})
+    assert r.get_json()["status"] == "skipped"
+    fake.lookup_tags.assert_not_called()
