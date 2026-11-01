@@ -72,6 +72,7 @@ class IpodManager:
             artist=meta.get("artist", ""),
             album=meta.get("album", ""),
             genre=meta.get("genre", ""),
+            grouping=meta.get("grouping", ""),
             ipod_path=ipod_path,
             duration_ms=meta.get("duration_ms", 0),
             file_size=dest.stat().st_size,
@@ -263,8 +264,8 @@ class IpodManager:
         reads from the DB.
 
         *fields*: which tag fields to sync from file → DB.  Defaults to all:
-            {"title", "artist", "album", "genre", "composer", "year",
-             "track_number", "lyrics", "file_size"}.
+            {"title", "artist", "album", "genre", "composer", "grouping",
+             "year", "track_number", "lyrics", "file_size"}.
 
         *on_progress*: optional callable(track, status_str) called after
             each file so callers can stream progress.
@@ -274,7 +275,7 @@ class IpodManager:
         from lyrics_finder.metadata import read_metadata
 
         ALL_FIELDS = {
-            "title", "artist", "album", "genre", "composer",
+            "title", "artist", "album", "genre", "composer", "grouping",
             "year", "track_number", "lyrics", "file_size",
         }
         sync = fields if fields is not None else ALL_FIELDS
@@ -302,6 +303,8 @@ class IpodManager:
                     track.genre = meta["genre"]
                 if "composer" in sync and meta.get("composer"):
                     track.composer = meta["composer"]
+                if "grouping" in sync and meta.get("grouping"):
+                    track.grouping = meta["grouping"]
                 if "year" in sync and meta.get("year"):
                     raw = str(meta["year"])
                     if raw[:4].isdigit():
@@ -372,6 +375,7 @@ class IpodManager:
                         artist=meta.get("artist", ""),
                         album=meta.get("album", ""),
                         genre=meta.get("genre", ""),
+                        grouping=meta.get("grouping", ""),
                         ipod_path=ipod_path,
                         duration_ms=meta.get("duration_ms", 0),
                         file_size=p.stat().st_size,
@@ -420,6 +424,7 @@ def _read_audio_meta(path: Path) -> dict:
             meta["artist"] = str(tags.get("TPE1", ""))
             meta["album"] = str(tags.get("TALB", ""))
             meta["genre"] = str(tags.get("TCON", ""))
+            meta["grouping"] = str(tags.get("GRP1", ""))
             trck = str(tags.get("TRCK", ""))
             meta["track_number"] = int(trck.split("/")[0]) if trck.isdigit() or "/" in trck else 0
             tdrc = str(tags.get("TDRC", ""))
@@ -434,6 +439,7 @@ def _read_audio_meta(path: Path) -> dict:
             meta["artist"] = (tags.get("\xa9ART") or [""])[0]
             meta["album"] = (tags.get("\xa9alb") or [""])[0]
             meta["genre"] = (tags.get("\xa9gen") or [""])[0]
+            meta["grouping"] = (tags.get("\xa9grp") or [""])[0]
             trkn = tags.get("trkn")
             meta["track_number"] = trkn[0][0] if trkn else 0
             year_raw = (tags.get("\xa9day") or [""])[0]

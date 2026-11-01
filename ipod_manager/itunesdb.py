@@ -59,6 +59,7 @@ class Track:
     genre: str = ""
     composer: str = ""
     comment: str = ""
+    grouping: str = ""
     # Colon-separated iPod path, e.g. :iPod_Control:Music:F01:0001.mp3
     ipod_path: str = ""
     duration_ms: int = 0
@@ -235,7 +236,7 @@ class iTunesDB:
             mhod_type = struct.unpack_from("<I", data, mhod_pos + 12)[0]
             if mhod_type in (
                 MHOD_TITLE, MHOD_FILENAME, MHOD_ALBUM, MHOD_ARTIST,
-                MHOD_GENRE, MHOD_COMPOSER, MHOD_COMMENT, MHOD_LYRICS,
+                MHOD_GENRE, MHOD_COMPOSER, MHOD_COMMENT, MHOD_GROUPING, MHOD_LYRICS,
             ):
                 value = self._parse_mhod_string(data, mhod_pos)
                 if mhod_type == MHOD_TITLE:
@@ -252,6 +253,8 @@ class iTunesDB:
                     t.composer = value
                 elif mhod_type == MHOD_COMMENT:
                     t.comment = value
+                elif mhod_type == MHOD_GROUPING:
+                    t.grouping = value
                 elif mhod_type == MHOD_LYRICS:
                     t.lyrics = value
             mhod_pos += mhod_total
@@ -326,6 +329,7 @@ class iTunesDB:
             (MHOD_GENRE, t.genre),
             (MHOD_COMPOSER, t.composer),
             (MHOD_COMMENT, t.comment),
+            (MHOD_GROUPING, t.grouping),
             (MHOD_LYRICS, t.lyrics),
         ]:
             if value:

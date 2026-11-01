@@ -28,7 +28,7 @@ def read_metadata(path: Path) -> dict:
         "title": "", "artist": "", "album": "", "album_artist": "",
         "genre": "", "year": "", "track_number": "", "track_total": "",
         "disc_number": "", "disc_total": "", "composer": "", "comment": "",
-        "lyrics": "", "has_artwork": False,
+        "grouping": "", "lyrics": "", "has_artwork": False,
     }
 
     if suffix == ".mp3":
@@ -40,6 +40,8 @@ def read_metadata(path: Path) -> dict:
         info["genre"]        = str(tags.get("TCON", ""))
         info["year"]         = str(tags.get("TDRC", ""))
         info["composer"]     = str(tags.get("TCOM", ""))
+        # iTunes 12.5+ and Apple Music store Grouping in GRP1; TIT1 is now "Work".
+        info["grouping"]     = str(tags.get("GRP1", ""))
         trck = str(tags.get("TRCK", ""))
         if "/" in trck:
             info["track_number"], info["track_total"] = trck.split("/", 1)
@@ -64,6 +66,7 @@ def read_metadata(path: Path) -> dict:
         info["genre"]        = (tags.get("\xa9gen") or [""])[0]
         info["year"]         = (tags.get("\xa9day") or [""])[0]
         info["composer"]     = (tags.get("\xa9wrt") or [""])[0]
+        info["grouping"]     = (tags.get("\xa9grp") or [""])[0]
         info["comment"]      = (tags.get("\xa9cmt") or [""])[0]
         info["lyrics"]       = (tags.get("\xa9lyr") or [""])[0]
         info["has_artwork"]  = bool(tags.get("covr"))

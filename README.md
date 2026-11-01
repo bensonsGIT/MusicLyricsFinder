@@ -20,7 +20,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-This registers three console scripts: `lyrics-finder`, `lyrics-finder-ui`, `ipod-manager`.
+This registers four console scripts: `lyrics-finder`, `lyrics-finder-ui`, `ipod-manager`, `vibe-tagger`.
 
 ## Usage
 
@@ -72,6 +72,30 @@ correct `iTunesDB` hash to boot after writes — install `libgpod`
 (`brew install libgpod`) for that; Rockbox needs no hash and just requires
 re-running "Initialize Now" under Settings > Database after a change.
 
+### Vibe tagger — sound-alike labels for RepriseOS Play Similar
+
+```bash
+brew install ffmpeg                # decodes AAC/M4A; MP3 works without it
+pip install -e '.[vibes]'          # librosa + scikit-learn
+vibe-tagger ~/Music/Music/Media.localized/Music --dry-run   # preview the vibes
+vibe-tagger ~/Music/Music/Media.localized/Music             # write them
+```
+
+Analyses a 45-second excerpt of each song (tempo, energy, dynamics,
+brightness, noisiness, percussiveness, major/minor feel and timbre), groups
+the library into 40 vibes with k-means (`--clusters N` to change), and writes
+`vibe:01` … `vibe:40` into the **Grouping** tag. Vibes are numbered from
+calmest to most intense. Results are cached in
+`~/.cache/musiclyricsfinder/vibe-features.json`, so re-runs only analyse new
+songs.
+
+Grouping values that are not vibes are left alone unless `--force` is given;
+`--clear` removes the vibe labels. The iPod reads Grouping from its own
+database, so get the labels there afterwards: re-sync the songs with Finder,
+or, for songs already copied to the iPod, run `vibe-tagger` on the iPod's
+music folder and use the web UI's **↑ Push Tags to DB**, which now carries
+Grouping.
+
 ## Architecture
 
 ```
@@ -83,6 +107,12 @@ lyrics_finder/
   itunes_sync.py   macOS-only: force Apple Music to re-scan changed files
   cli.py           `lyrics-finder` entry point
   web.py           Flask app behind `lyrics-finder-ui`
+
+vibe_tagger/
+  features.py      audio excerpt decoding (ffmpeg) and librosa feature extraction
+  cluster.py       standardised, weighted k-means; vibes numbered calm → intense
+  tags.py          Grouping read/write (MP3 GRP1, M4A ©grp)
+  cli.py           `vibe-tagger` entry point, parallel analysis with a feature cache
 
 ipod_manager/
   detector.py      finds the iPod mount point on macOS/Linux/Windows

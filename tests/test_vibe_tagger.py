@@ -1,0 +1,183 @@
+"""Tests for vibe-tagger: tags, clustering, the CLI flow and audio features."""
+
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+from mutagen.id3 import ID3, TIT1
+
+from ipod_manager.itunesdb import Track, iTunesDB
+from lyrics_finder.metadata import read_metadata
+from tests.test_metadata import _make_m4a, _make_mp3
+from vibe_tagger import cli
+from vibe_tagger.features import FEATURES
+from vibe_tagger.tags import is_vibe, label, read_grouping, write_grouping
+
+
+def _vector(energy: float, percussive: float) -> list[float]:
+    values = [0.0] * len(FEATURES)
+    values[FEATURES.index("energy")] = energy
+    values[FEATURES.index("percussiveness")] = percussive
+    return values
+
+
+# ------------------------------------------------------------------ tags
+
+@pytest.mark.parametrize("make, name", [(_make_mp3, "a.mp3"), (_make_m4a, "a.m4a")])
+def test_grouping_roundtrip_and_clear(tmp_path, make, name):
+    path = tmp_path / name
+    make(path, title="Song")
+    assert read_grouping(path) == ""
+    write_grouping(path, "vibe:07")
+    assert read_grouping(path) == "vibe:07"
+    assert read_metadata(path)["grouping"] == "vibe:07"
+    assert read_metadata(path)["title"] == "Song"
+    write_grouping(path, "")
+    assert read_grouping(path) == ""
+
+
+def test_mp3_grouping_uses_grp1_not_work_frame(tmp_path):
+    path = tmp_path / "a.mp3"
+    _make_mp3(path)
+    tags = ID3(path)
+    tags.add(TIT1(encoding=3, text=["Symphony No. 5"]))
+    tags.save(path)
+    write_grouping(path, "vibe:01")
+    tags = ID3(path)
+    assert str(tags["GRP1"]) == "vibe:01"
+    assert str(tags["TIT1"]) == "Symphony No. 5"
+
+
+def test_labels():
+    assert label(3) == "vibe:03"
+    assert is_vibe("vibe:40")
+    assert not is_vibe("Live recordings")
+
+
+# ------------------------------------------------------------------ itunesdb
+
+def test_itunesdb_keeps_grouping(tmp_path):
+    db = iTunesDB()
+    db.tracks.append(Track(title="T", grouping="vibe:12", file_type="MP3 ",
+                           ipod_path=":iPod_Control:Music:F00:0001.mp3"))
+    db.write(tmp_path / "iTunesDB")
+    assert iTunesDB.read(tmp_path / "iTunesDB").tracks[0].grouping == "vibe:12"
+
+
+# ------------------------------------------------------------------ cluster
+
+def test_assign_separates_groups_and_numbers_calm_first():
+    from vibe_tagger.cluster import assign
+
+    calm = [_vector(-40 + i * 0.1, 0.5) for i in range(5)]
+    loud = [_vector(-8 + i * 0.1, 3.0) for i in range(5)]
+    vibes = assign(calm + loud, clusters=2)
+    assert set(vibes[:5]) == {1}
+    assert set(vibes[5:]) == {2}
+
+
+def test_assign_caps_clusters_at_song_count():
+    from vibe_tagger.cluster import assign
+
+    assert sorted(assign([_vector(-30, 1), _vector(-10, 2)], clusters=40)) == [1, 2]
+
+
+# ------------------------------------------------------------------ cli
+
+@pytest.fixture
+def library(tmp_path, monkeypatch):
+    """Three calm and three loud songs with faked analysis."""
+    pytest.importorskip("sklearn")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    # Analyse in-process so the fake below applies.
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+    calls = []
+
+    def fake(path):
+        calls.append(path)
+        loud = "loud" in path
+        return _vector(-8 if loud else -40, 3.0 if loud else 0.5)
+
+    monkeypatch.setattr(cli, "_analyze", fake)
+    music = tmp_path / "music"
+    music.mkdir()
+    for i in range(3):
+        _make_mp3(music / f"calm{i}.mp3", title=f"Calm {i}", artist="A")
+        _make_m4a(music / f"loud{i}.m4a", title=f"Loud {i}", artist="B")
+    return music, calls
+
+
+def test_cli_writes_vibes(library):
+    music, _ = library
+    assert cli.main([str(music), "--clusters", "2", "--jobs", "1"]) == 0
+    assert {read_grouping(p) for p in music.glob("calm*")} == {"vibe:01"}
+    assert {read_grouping(p) for p in music.glob("loud*")} == {"vibe:02"}
+
+
+def test_cli_dry_run_writes_nothing(library):
+    music, _ = library
+    assert cli.main([str(music), "--clusters", "2", "--dry-run"]) == 0
+    assert all(read_grouping(p) == "" for p in music.iterdir())
+
+
+def test_cli_keeps_user_grouping_unless_forced(library):
+    music, _ = library
+    write_grouping(music / "calm0.mp3", "Wedding playlist")
+    cli.main([str(music), "--clusters", "2"])
+    assert read_grouping(music / "calm0.mp3") == "Wedding playlist"
+    cli.main([str(music), "--clusters", "2", "--force"])
+    assert read_grouping(music / "calm0.mp3") == "vibe:01"
+
+
+def test_cli_reuses_cache_after_tagging(library):
+    music, calls = library
+    cli.main([str(music), "--clusters", "2"])
+    first = len(calls)
+    cli.main([str(music), "--clusters", "2"])
+    assert first == 6 and len(calls) == first
+
+
+def test_cli_clear_removes_only_vibes(library):
+    music, _ = library
+    cli.main([str(music), "--clusters", "2"])
+    write_grouping(music / "calm1.mp3", "Keep me")
+    assert cli.main([str(music), "--clear"]) == 0
+    assert read_grouping(music / "calm1.mp3") == "Keep me"
+    assert read_grouping(music / "loud0.m4a") == ""
+
+
+# ------------------------------------------------------------------ features
+
+def test_features_tell_quiet_tone_from_loud_beat(tmp_path):
+    np = pytest.importorskip("numpy")
+    soundfile = pytest.importorskip("soundfile")
+    pytest.importorskip("librosa")
+    from vibe_tagger.features import SAMPLE_RATE, analyze
+
+    t = np.arange(SAMPLE_RATE * 8) / SAMPLE_RATE
+    calm = 0.05 * np.sin(2 * np.pi * 220 * t)
+    beat = np.random.default_rng(0).normal(0, 0.3, t.size) * (np.sin(2 * np.pi * 2 * t) > 0.9)
+    soundfile.write(tmp_path / "calm.wav", calm, SAMPLE_RATE)
+    soundfile.write(tmp_path / "beat.wav", beat, SAMPLE_RATE)
+
+    quiet, loud = analyze(tmp_path / "calm.wav"), analyze(tmp_path / "beat.wav")
+    assert len(quiet) == len(FEATURES)
+    assert all(np.isfinite(quiet)) and all(np.isfinite(loud))
+    for feature in ("noisiness", "percussiveness", "dynamics"):
+        index = FEATURES.index(feature)
+        assert loud[index] > quiet[index], feature
+
+
+def test_push_tags_to_db_carries_grouping(tmp_path):
+    from ipod_manager.manager import IpodManager
+    from tests.test_ipod_manager import _stock_mount
+
+    mount = _stock_mount(tmp_path)
+    song = tmp_path / "iPod_Control" / "Music" / "F00" / "0001.mp3"
+    _make_mp3(song, title="Song")
+    write_grouping(song, "vibe:05")
+    db = iTunesDB()
+    db.tracks.append(Track(title="Song", ipod_path=":iPod_Control:Music:F00:0001.mp3"))
+    db.write(mount.itunesdb_path)
+
+    IpodManager(mount).push_file_tags_to_db()
+    assert iTunesDB.read(mount.itunesdb_path).tracks[0].grouping == "vibe:05"
