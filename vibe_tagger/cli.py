@@ -64,6 +64,24 @@ def prune(cache: dict, roots: list[str]) -> int:
     return len(stale)
 
 
+# Each worker already uses a whole core; library thread pools on top of that
+# oversubscribe the CPU, adding heat without adding speed.
+_SINGLE_THREAD = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                  "VECLIB_MAXIMUM_THREADS", "NUMBA_NUM_THREADS")
+
+
+def default_jobs() -> int:
+    """Half the cores: fast enough for a one-off run without pinning the machine."""
+    return max(1, (os.cpu_count() or 2) // 2)
+
+
+def _worker_start() -> None:
+    try:
+        os.nice(10)  # yield to whatever else the machine is doing
+    except (AttributeError, OSError):
+        pass
+
+
 def _analyze(path: str) -> list[float]:
     from .features import analyze
     return analyze(Path(path))
@@ -94,7 +112,10 @@ def measure(files: list[Path], cache: dict, cache_path: Path | None,
         print(f"Analysing {len(pending)} of {len(files)} songs "
               f"({len(files) - len(pending)} cached)…", flush=True)
     failed = 0
-    with ProcessPoolExecutor(max_workers=jobs) as pool:
+    for name in _SINGLE_THREAD:
+        # Set before workers start so their libraries read it on import.
+        os.environ.setdefault(name, "1")
+    with ProcessPoolExecutor(max_workers=jobs, initializer=_worker_start) as pool:
         futures = {pool.submit(_analyze, str(path)): path for path in pending}
         for done, future in enumerate(as_completed(futures), 1):
             path = futures[future]
@@ -152,8 +173,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Audio files or directories (your whole library works best)")
     parser.add_argument("--clusters", type=int, default=DEFAULT_CLUSTERS,
                         help=f"Number of vibes (default {DEFAULT_CLUSTERS})")
-    parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1),
-                        help="Songs analysed in parallel (default: CPU cores - 1)")
+    parser.add_argument("--jobs", type=int, default=default_jobs(),
+                        help="Songs analysed in parallel (default: half the CPU cores; "
+                             "lower runs cooler, higher finishes sooner)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Analyse and print the vibes without writing tags")
     parser.add_argument("--force", action="store_true",

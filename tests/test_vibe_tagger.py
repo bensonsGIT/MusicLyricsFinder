@@ -88,8 +88,12 @@ def library(tmp_path, monkeypatch):
     """Three calm and three loud songs with faked analysis."""
     pytest.importorskip("sklearn")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    # Analyse in-process so the fake below applies.
+    # Analyse in-process so the fake below applies, without lowering the test
+    # runner's own priority.
     monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+    monkeypatch.setattr(cli, "_worker_start", lambda: None)
+    for name in cli._SINGLE_THREAD:
+        monkeypatch.delenv(name, raising=False)
     calls = []
 
     def fake(path):
@@ -294,3 +298,18 @@ def test_cli_reanalyses_cached_nan_entries(library):
     before = len(calls)
     assert cli.main([str(music), "--clusters", "2"]) == 0
     assert len(calls) == before + 1
+
+
+# ------------------------------------------------------------------ CPU load
+
+def test_default_jobs_use_half_the_cores(monkeypatch):
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 10)
+    assert cli.default_jobs() == 5
+    monkeypatch.setattr(cli.os, "cpu_count", lambda: 1)
+    assert cli.default_jobs() == 1
+
+
+def test_workers_are_limited_to_one_library_thread(library):
+    music, _ = library
+    cli.main([str(music), "--clusters", "2"])
+    assert all(cli.os.environ[name] == "1" for name in cli._SINGLE_THREAD)
