@@ -82,7 +82,8 @@ vibe-tagger ~/Music/Music/Media.localized/Music             # write them
 ```
 
 Analyses a 45-second excerpt of each song (tempo, energy, dynamics,
-brightness, percussiveness, major/minor feel and timbre), groups the library
+brightness, percussiveness, major/minor feel, timbre, drums vs tonal
+instruments, bass weight, beat steadiness and mix density), groups the library
 into 20 vibes with k-means (`--clusters N` to change), and writes `vibe:01` …
 `vibe:20` into the **Grouping** tag. Vibes are numbered from calmest to most
 intense, and the summary describes each one relative to the other vibes. Results are cached in `~/.cache/musiclyricsfinder/vibe-features.json`,

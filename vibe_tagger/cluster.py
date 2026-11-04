@@ -56,4 +56,8 @@ def describe(vectors: list[list[float]], groups: list[list[list[float]]]) -> str
         level("dynamics", "even", "some contrast", "punchy"),
         level("brightness", "dark/warm", "balanced tone", "bright"),
         level("major", "minor-leaning", "neutral key", "major-leaning"),
+        level("drums", "mostly tonal", "balanced mix", "drum-heavy"),
+        level("bass", "light bass", "moderate bass", "bass-heavy"),
+        level("steadiness", "loose rhythm", "regular rhythm", "locked groove"),
+        level("contrast", "dense mix", "medium density", "sparse mix"),
     ])

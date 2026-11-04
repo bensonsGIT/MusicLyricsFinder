@@ -162,9 +162,38 @@ def test_features_tell_quiet_tone_from_loud_beat(tmp_path):
     quiet, loud = analyze(tmp_path / "calm.wav"), analyze(tmp_path / "beat.wav")
     assert len(quiet) == len(FEATURES)
     assert all(np.isfinite(quiet)) and all(np.isfinite(loud))
-    for feature in ("noisiness", "percussiveness", "dynamics"):
+    for feature in ("noisiness", "percussiveness", "dynamics", "drums", "steadiness"):
         index = FEATURES.index(feature)
         assert loud[index] > quiet[index], feature
+    # A pure tone is the sparsest possible spectrum.
+    assert quiet[FEATURES.index("contrast")] > loud[FEATURES.index("contrast")]
+
+
+def test_features_measure_bass_and_beat_steadiness(tmp_path):
+    np = pytest.importorskip("numpy")
+    soundfile = pytest.importorskip("soundfile")
+    pytest.importorskip("librosa")
+    from vibe_tagger.features import SAMPLE_RATE, analyze
+
+    t = np.arange(SAMPLE_RATE * 12) / SAMPLE_RATE
+    soundfile.write(tmp_path / "low.wav", 0.3 * np.sin(2 * np.pi * 60 * t), SAMPLE_RATE)
+    soundfile.write(tmp_path / "high.wav", 0.3 * np.sin(2 * np.pi * 2000 * t), SAMPLE_RATE)
+    low, high = analyze(tmp_path / "low.wav"), analyze(tmp_path / "high.wav")
+    assert low[FEATURES.index("bass")] > 0.9 > 0.1 > high[FEATURES.index("bass")]
+
+    rng = np.random.default_rng(1)
+    click = rng.normal(0, 0.5, 400)
+
+    def clicks(times):
+        audio = np.zeros(t.size)
+        for start in (times * SAMPLE_RATE).astype(int):
+            audio[start:start + click.size] += click[:max(0, min(click.size, t.size - start))]
+        return audio
+
+    soundfile.write(tmp_path / "steady.wav", clicks(np.arange(0, 11.5, 0.5)), SAMPLE_RATE)
+    soundfile.write(tmp_path / "loose.wav", clicks(np.sort(rng.uniform(0, 11.5, 23))), SAMPLE_RATE)
+    steady, loose = analyze(tmp_path / "steady.wav"), analyze(tmp_path / "loose.wav")
+    assert steady[FEATURES.index("steadiness")] > loose[FEATURES.index("steadiness")] + 0.2
 
 
 def test_push_tags_to_db_carries_grouping(tmp_path):
