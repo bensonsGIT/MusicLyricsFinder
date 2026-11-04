@@ -92,11 +92,24 @@ def load_excerpt(path: Path) -> np.ndarray:
 
 def analyze(path: Path) -> list[float]:
     """Return one value per entry in FEATURES. Raises on unreadable or tiny files."""
-    import librosa
-
     y, sr = load_excerpt(path), SAMPLE_RATE
     if y.size < sr:
         raise ValueError("audio shorter than one second")
+    # Damaged frames can decode to NaN or infinity, which spreads through every measure.
+    y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
+    with warnings.catch_warnings():
+        # Some numba/NumPy builds warn on NaN casts inside librosa; results are
+        # checked below instead.
+        warnings.filterwarnings("ignore", message="invalid value encountered", category=RuntimeWarning)
+        values = _measure(y, sr)
+    if not all(np.isfinite(values)):
+        bad = ", ".join(name for name, value in zip(FEATURES, values) if not np.isfinite(value))
+        raise ValueError(f"analysis produced invalid values ({bad})")
+    return values
+
+
+def _measure(y: np.ndarray, sr: int) -> list[float]:
+    import librosa
 
     rms_db = librosa.amplitude_to_db(librosa.feature.rms(y=y)[0], ref=1.0)
     onsets = librosa.onset.onset_strength(y=y, sr=sr)

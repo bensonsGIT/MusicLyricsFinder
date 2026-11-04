@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 import sys
 from collections import defaultdict
@@ -80,7 +81,11 @@ def measure(files: list[Path], cache: dict, cache_path: Path | None,
     for path in files:
         key = str(path.resolve())
         entry = cache.get(key)
-        if entry and entry.get("size") == path.stat().st_size and len(entry["features"]) == len(FEATURES):
+        # Re-analyse entries from older feature sets or ones holding NaN, which
+        # earlier versions could store and which would break clustering.
+        if (entry and entry.get("size") == path.stat().st_size
+                and len(entry["features"]) == len(FEATURES)
+                and all(math.isfinite(value) for value in entry["features"])):
             vectors[path] = entry["features"]
         else:
             pending.append(path)

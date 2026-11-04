@@ -263,3 +263,34 @@ def test_cli_prunes_cache_of_deleted_songs(library):
     cache = cli._load_cache(cli.default_cache_path())
     assert not any(key.endswith("calm0.mp3") for key in cache)
     assert len(cache) == 5
+
+
+# ------------------------------------------------------------------ invalid values
+
+def test_analyze_cleans_nan_samples_and_rejects_invalid_results(monkeypatch):
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("librosa")
+    from pathlib import Path
+    from vibe_tagger import features
+
+    t = np.arange(features.SAMPLE_RATE * 5) / features.SAMPLE_RATE
+    audio = (0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    audio[1000:2000] = np.nan
+    monkeypatch.setattr(features, "load_excerpt", lambda path: audio.copy())
+    assert all(np.isfinite(features.analyze(Path("song.mp3"))))
+
+    monkeypatch.setattr(features, "_measure", lambda y, sr: [float("nan")] * len(FEATURES))
+    with pytest.raises(ValueError, match="invalid values"):
+        features.analyze(Path("song.mp3"))
+
+
+def test_cli_reanalyses_cached_nan_entries(library):
+    music, calls = library
+    cli.main([str(music), "--clusters", "2"])
+    cache = cli._load_cache(cli.default_cache_path())
+    poisoned = next(iter(cache))
+    cache[poisoned]["features"][0] = float("nan")
+    cli._save_cache(cli.default_cache_path(), cache)
+    before = len(calls)
+    assert cli.main([str(music), "--clusters", "2"]) == 0
+    assert len(calls) == before + 1
