@@ -10,7 +10,9 @@ from pathlib import Path
 
 from .tags import SUPPORTED, is_vibe, label, read_grouping, write_grouping
 
-DEFAULT_CLUSTERS = 40
+# About 400 songs per vibe on a 6,000-8,000 song library; 40 vibes shifted far more
+# between runs, and Play Similar needs enough same-vibe songs to choose from.
+DEFAULT_CLUSTERS = 20
 
 
 def default_cache_path() -> Path:
@@ -45,6 +47,20 @@ def _save_cache(path: Path | None, cache: dict) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(cache))
     temporary.replace(path)
+
+
+def prune(cache: dict, roots: list[str]) -> int:
+    """Drop cached songs under the scanned folders that no longer exist.
+
+    Only scanned folders are pruned, so an unmounted iPod or another library
+    keeps its cached analyses."""
+    prefixes = [str(Path(root).expanduser().resolve()) + os.sep
+                for root in roots if Path(root).expanduser().is_dir()]
+    stale = [key for key in cache
+             if any(key.startswith(prefix) for prefix in prefixes) and not Path(key).exists()]
+    for key in stale:
+        del cache[key]
+    return len(stale)
 
 
 def _analyze(path: str) -> list[float]:
@@ -108,9 +124,11 @@ def summarize(vibes: dict[Path, int], vectors: dict[Path, list[float]], samples:
     members = defaultdict(list)
     for path, vibe in vibes.items():
         members[vibe].append(path)
+    groups = {vibe: [vectors[p] for p in paths] for vibe, paths in members.items()}
     for vibe in sorted(members):
         paths = members[vibe]
-        print(f"\n{label(vibe)}  {len(paths)} songs  ({describe([vectors[p] for p in paths])})")
+        summary = describe(groups[vibe], list(groups.values()))
+        print(f"\n{label(vibe)}  {len(paths)} songs  ({summary})")
         step = max(1, len(paths) // samples)
         for path in paths[::step][:samples]:
             print(f"    {_song_name(path)}")
@@ -167,6 +185,10 @@ def main(argv: list[str] | None = None) -> int:
 
     cache_path = None if args.no_cache else default_cache_path()
     cache = _load_cache(cache_path)
+    pruned = prune(cache, args.paths)
+    if pruned:
+        print(f"Forgot {pruned} cached songs that are no longer in the library.")
+        _save_cache(cache_path, cache)
     vectors = measure(files, cache, cache_path, args.jobs)
     if not vectors:
         print("No songs could be analysed.", file=sys.stderr)

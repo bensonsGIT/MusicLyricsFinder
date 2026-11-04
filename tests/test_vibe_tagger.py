@@ -181,3 +181,56 @@ def test_push_tags_to_db_carries_grouping(tmp_path):
 
     IpodManager(mount).push_file_tags_to_db()
     assert iTunesDB.read(mount.itunesdb_path).tracks[0].grouping == "vibe:05"
+
+
+# ------------------------------------------------------------------ tuning
+
+def test_assign_ignores_redundant_colour_measures():
+    from vibe_tagger.cluster import assign
+
+    calm = [_vector(-40, 0.5) for _ in range(4)]
+    loud = [_vector(-8, 3.0) for _ in range(4)]
+    # Noisiness and timbre_1 duplicate brightness and carry no weight, so making
+    # half of each group noisy must not split the groups along that line.
+    for song in calm[:2] + loud[:2]:
+        song[FEATURES.index("noisiness")] = 50.0
+        song[FEATURES.index("timbre_1")] = -50.0
+    vibes = assign(calm + loud, clusters=2)
+    assert set(vibes[:4]) == {1} and set(vibes[4:]) == {2}
+
+
+def test_describe_ranks_a_vibe_against_the_others():
+    from vibe_tagger.cluster import describe
+
+    groups = [[_vector(energy, 1.0), _vector(energy + 1, 1.0)] for energy in (-30, -20, -10)]
+    assert "loud" in describe(groups[2], groups).split(", ")
+    assert "quiet" in describe(groups[0], groups).split(", ")
+    assert "medium loudness" in describe(groups[1], groups).split(", ")
+
+
+def test_default_is_twenty_vibes():
+    assert cli.DEFAULT_CLUSTERS == 20
+
+
+def test_prune_forgets_missing_songs_only_under_scanned_folders(tmp_path):
+    music, elsewhere = tmp_path / "music", tmp_path / "ipod"
+    music.mkdir()
+    kept = music / "kept.mp3"
+    kept.write_bytes(b"x")
+    cache = {
+        str(kept.resolve()): {},
+        str((music / "gone.mp3").resolve()): {},
+        str((elsewhere / "unmounted.mp3").resolve()): {},
+    }
+    assert cli.prune(cache, [str(music)]) == 1
+    assert set(cache) == {str(kept.resolve()), str((elsewhere / "unmounted.mp3").resolve())}
+
+
+def test_cli_prunes_cache_of_deleted_songs(library):
+    music, _ = library
+    cli.main([str(music), "--clusters", "2"])
+    (music / "calm0.mp3").unlink()
+    cli.main([str(music), "--clusters", "2"])
+    cache = cli._load_cache(cli.default_cache_path())
+    assert not any(key.endswith("calm0.mp3") for key in cache)
+    assert len(cache) == 5

@@ -82,12 +82,12 @@ vibe-tagger ~/Music/Music/Media.localized/Music             # write them
 ```
 
 Analyses a 45-second excerpt of each song (tempo, energy, dynamics,
-brightness, noisiness, percussiveness, major/minor feel and timbre), groups
-the library into 40 vibes with k-means (`--clusters N` to change), and writes
-`vibe:01` … `vibe:40` into the **Grouping** tag. Vibes are numbered from
-calmest to most intense. Results are cached in
-`~/.cache/musiclyricsfinder/vibe-features.json`, so re-runs only analyse new
-songs.
+brightness, percussiveness, major/minor feel and timbre), groups the library
+into 20 vibes with k-means (`--clusters N` to change), and writes `vibe:01` …
+`vibe:20` into the **Grouping** tag. Vibes are numbered from calmest to most
+intense, and the summary describes each one relative to the other vibes. Results are cached in `~/.cache/musiclyricsfinder/vibe-features.json`,
+so re-runs only analyse new songs; songs that disappeared from the scanned
+folders are dropped from the cache.
 
 Grouping values that are not vibes are left alone unless `--force` is given;
 `--clear` removes the vibe labels. The iPod reads Grouping from its own

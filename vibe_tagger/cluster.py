@@ -4,9 +4,12 @@ import numpy as np
 
 from .features import FEATURES
 
-# Timbre spans many coefficients; down-weight each so it does not swamp pace,
-# intensity and mood, which matter most to how a song feels.
-_WEIGHTS = np.array([0.5 if name.startswith("timbre_") else 1.0 for name in FEATURES])
+# Tuned on a 8,700-song library: noisiness and the first timbre coefficient track
+# brightness almost exactly (|r| 0.84-0.94), so only brightness counts; timbre
+# carries the most information about sound; tempo and major/minor estimates are
+# noisy, so they count half. They stay in FEATURES so cached analyses remain valid.
+_WEIGHT_OVERRIDES = {"noisiness": 0.0, "timbre_1": 0.0, "tempo": 0.5, "major": 0.5}
+_WEIGHTS = np.array([_WEIGHT_OVERRIDES.get(name, 1.0) for name in FEATURES])
 
 
 def assign(vectors: list[list[float]], clusters: int, seed: int = 0) -> list[int]:
@@ -31,13 +34,26 @@ def assign(vectors: list[list[float]], clusters: int, seed: int = 0) -> list[int
     return [rank[label] for label in labels]
 
 
-def describe(vectors: list[list[float]]) -> str:
-    """A short human summary of a group of feature vectors."""
-    mean = np.asarray(vectors, dtype=float).mean(axis=0)
-    tempo = mean[FEATURES.index("tempo")]
-    energy = mean[FEATURES.index("energy")]
-    brightness = mean[FEATURES.index("brightness")]
-    major = mean[FEATURES.index("major")]
-    return (f"~{tempo:.0f} BPM, {energy:.0f} dB, "
-            f"{'bright' if brightness > 2.0 else 'warm'}, "
-            f"{'major' if major > 0 else 'minor'}-leaning")
+def describe(vectors: list[list[float]], groups: list[list[list[float]]]) -> str:
+    """A short summary of one vibe relative to the others.
+
+    Group averages crowd towards the library average, so each measure is ranked
+    against the other vibes' averages rather than against individual songs.
+    """
+    group = np.asarray(vectors, dtype=float).mean(axis=0)
+    means = np.array([np.asarray(g, dtype=float).mean(axis=0) for g in groups])
+
+    def level(name, low, mid, high):
+        index = FEATURES.index(name)
+        lower, upper = np.percentile(means[:, index], [33.3, 66.7])
+        value = group[index]
+        return low if value < lower else high if value > upper else mid
+
+    return ", ".join([
+        level("tempo", "slower", "mid-tempo", "faster"),
+        level("energy", "quiet", "medium loudness", "loud"),
+        level("percussiveness", "smooth", "steady beat", "driving beat"),
+        level("dynamics", "even", "some contrast", "punchy"),
+        level("brightness", "dark/warm", "balanced tone", "bright"),
+        level("major", "minor-leaning", "neutral key", "major-leaning"),
+    ])
